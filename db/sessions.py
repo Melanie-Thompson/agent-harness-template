@@ -4,6 +4,7 @@ import secrets
 import redis.asyncio as aioredis
 
 from config import Config
+from errors import NotInitializedError
 
 _dragonfly: aioredis.Redis | None = None
 
@@ -21,7 +22,8 @@ async def close_dragonfly() -> None:
 
 
 def get_dragonfly() -> aioredis.Redis:
-    assert _dragonfly is not None, "Dragonfly not initialized — call init_dragonfly() first"
+    if _dragonfly is None:
+        raise NotInitializedError("Dragonfly")
     return _dragonfly
 
 

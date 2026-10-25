@@ -1,6 +1,7 @@
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 from config import Config
+from errors import NotInitializedError
 
 _client: AsyncIOMotorClient | None = None
 
@@ -18,5 +19,6 @@ async def close_mongo() -> None:
 
 
 def get_mongo_db() -> AsyncIOMotorDatabase:
-    assert _client is not None, "Mongo not initialized — call init_mongo() first"
+    if _client is None:
+        raise NotInitializedError("MongoDB")
     return _client[Config.MONGO_DB]

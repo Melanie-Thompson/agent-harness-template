@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import RedirectResponse
 
 from auth.oauth import oauth
 from auth.passwordless import send_magic_link, send_otp, verify_magic_link, verify_otp
 from config import Config
+from errors import InvalidCredentialError, OAuthEmailError
 from db.meta import build_meta_create
 from db.mongo import get_mongo_db
 from db.sessions import create_session
@@ -66,7 +67,7 @@ async def google_callback(request: Request):
     userinfo = token.get("userinfo", {})
     email = userinfo.get("email")
     if not email:
-        raise HTTPException(status_code=400, detail="Could not retrieve email from Google")
+        raise OAuthEmailError("Google")
 
     response = RedirectResponse(url="/")
     await _authenticate_user(
@@ -99,7 +100,7 @@ async def github_callback(request: Request):
         email = primary["email"] if primary else None
 
     if not email:
-        raise HTTPException(status_code=400, detail="Could not retrieve email from GitHub")
+        raise OAuthEmailError("GitHub")
 
     name_parts = (profile.get("name") or "").split(" ", 1)
     first_name = name_parts[0] if name_parts else ""
@@ -129,7 +130,7 @@ async def request_magic_link(body: MagicLinkRequest) -> MessageResponse:
 async def verify_magic(token: str):
     email = verify_magic_link(token)
     if not email:
-        raise HTTPException(status_code=400, detail="Invalid or expired magic link")
+        raise InvalidCredentialError("magic link")
 
     response = RedirectResponse(url="/")
     await _authenticate_user(email=email, response=response, auth_provider="magic")
@@ -149,7 +150,7 @@ async def request_otp(body: OTPSendRequest) -> MessageResponse:
 async def verify_otp_endpoint(body: OTPVerifyRequest, response: Response) -> AuthResponse:
     valid = await verify_otp(body.email, body.code)
     if not valid:
-        raise HTTPException(status_code=400, detail="Invalid or expired code")
+        raise InvalidCredentialError("verification code")
 
     result = await _authenticate_user(email=body.email, response=response, auth_provider="otp")
     return AuthResponse(message="Logged in successfully", user_id=result["user_id"])

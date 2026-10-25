@@ -6,6 +6,7 @@ from uuid import uuid4
 import redis.asyncio as aioredis
 
 from config import Config
+from errors import NotInitializedError
 from schemas.conversation import ConversationMessage, ConversationSummary
 
 _store: aioredis.Redis | None = None
@@ -28,7 +29,8 @@ async def close_conversation_store() -> None:
 
 
 def get_conversation_store() -> aioredis.Redis:
-    assert _store is not None, "Conversation store not initialized — call init_conversation_store() first"
+    if _store is None:
+        raise NotInitializedError("Conversation store")
     return _store
 
 
