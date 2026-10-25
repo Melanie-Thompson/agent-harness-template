@@ -1,4 +1,4 @@
-# Basic Harness
+# Agent Harness Template
 
 An AI agent harness built on FastAPI. Gives LLMs the ability to call tools — starting with user-scoped database operations — through a multi-turn execution loop with SSE streaming, configurable guardrails, and gated write confirmation. Production-ready auth, permissions, and audit trail included.
 

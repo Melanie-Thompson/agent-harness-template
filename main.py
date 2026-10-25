@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Basic Harness API",
+    title="Agent Harness API",
     description=(
         "AI agent harness with tool-calling, SSE streaming, "
         "configurable guardrails, gated writes, and production-ready "

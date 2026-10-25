@@ -1,4 +1,4 @@
-# Basic Harness — Code Architecture Rules
+# Agent Harness Template — Code Architecture Rules
 
 ## Project
 
