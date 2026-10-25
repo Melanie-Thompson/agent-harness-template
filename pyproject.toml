@@ -1,7 +1,7 @@
 [project]
-name = "basic-harness"
+name = "agent-harness-template"
 version = "0.1.0"
-description = "Reusable FastAPI template for AI harness projects"
+description = "AI agent harness with tool-calling, SSE streaming, guardrails, and gated writes"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115",

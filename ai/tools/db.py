@@ -7,6 +7,7 @@ from typing import Any, Literal
 from ai.tools.base import harness_tool
 from config import Config
 from db.connect import DbConnect
+from errors import CollectionNotAllowedError, NoDbContextError
 
 _db_context: ContextVar[DbConnect | None] = ContextVar("_db_context", default=None)
 
@@ -18,7 +19,7 @@ def set_db_context(db: DbConnect) -> None:
 def get_db_context() -> DbConnect:
     db = _db_context.get()
     if db is None:
-        raise RuntimeError("No database context set — call set_db_context() before executing DB tools")
+        raise NoDbContextError()
     return db
 
 
@@ -38,7 +39,7 @@ def _sanitise_filter(filter: dict[str, Any] | list | Any) -> Any:
 def _check_collection(collection: str) -> None:
     allowed = Config.AGENT_ALLOWED_COLLECTIONS
     if allowed and collection not in allowed:
-        raise ValueError(f"Collection '{collection}' is not in the allowed list: {allowed}")
+        raise CollectionNotAllowedError(collection, allowed)
 
 
 @harness_tool(

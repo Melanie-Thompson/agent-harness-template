@@ -1,9 +1,10 @@
-from typing import TypeVar
+from typing import Any, Callable, TypeVar
 
 from langchain_core.language_models import BaseChatModel
 from pydantic import BaseModel
 
 from config import Config
+from errors import UnsupportedProviderError
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -14,39 +15,37 @@ DEFAULT_MODELS = {
 }
 
 
+def _make_gemini(model: str, temperature: float) -> BaseChatModel:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    return ChatGoogleGenerativeAI(model=model, temperature=temperature, google_api_key=Config.GOOGLE_API_KEY)
+
+
+def _make_anthropic(model: str, temperature: float) -> BaseChatModel:
+    from langchain_anthropic import ChatAnthropic
+    return ChatAnthropic(model=model, temperature=temperature, api_key=Config.ANTHROPIC_API_KEY)
+
+
+def _make_openai(model: str, temperature: float) -> BaseChatModel:
+    from langchain_openai import ChatOpenAI
+    return ChatOpenAI(model=model, temperature=temperature, api_key=Config.OPENAI_API_KEY)
+
+
+_PROVIDERS: dict[str, Callable[[str, float], BaseChatModel]] = {
+    "gemini": _make_gemini,
+    "anthropic": _make_anthropic,
+    "openai": _make_openai,
+}
+
+
 def get_llm(model_override: str | None = None) -> BaseChatModel:
     provider = Config.LLM_PROVIDER
     model = model_override or Config.LLM_MODEL or DEFAULT_MODELS.get(provider, "")
     temperature = Config.LLM_TEMPERATURE
 
-    if provider == "gemini":
-        from langchain_google_genai import ChatGoogleGenerativeAI
-
-        return ChatGoogleGenerativeAI(
-            model=model,
-            temperature=temperature,
-            google_api_key=Config.GOOGLE_API_KEY,
-        )
-
-    if provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-
-        return ChatAnthropic(
-            model=model,
-            temperature=temperature,
-            api_key=Config.ANTHROPIC_API_KEY,
-        )
-
-    if provider == "openai":
-        from langchain_openai import ChatOpenAI
-
-        return ChatOpenAI(
-            model=model,
-            temperature=temperature,
-            api_key=Config.OPENAI_API_KEY,
-        )
-
-    raise ValueError(f"Unsupported LLM provider: {provider}")
+    factory = _PROVIDERS.get(provider)
+    if not factory:
+        raise UnsupportedProviderError(provider)
+    return factory(model, temperature)
 
 
 async def invoke_structured(

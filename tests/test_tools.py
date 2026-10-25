@@ -113,7 +113,9 @@ def test_sanitise_filter_deeply_nested():
 def test_collection_allowlist_blocks(monkeypatch):
     monkeypatch.setattr(Config, "AGENT_ALLOWED_COLLECTIONS", ["items", "orders"])
 
-    with pytest.raises(ValueError, match="not in the allowed list"):
+    from errors import CollectionNotAllowedError
+
+    with pytest.raises(CollectionNotAllowedError, match="not in the allowed list"):
         from ai.tools.db import _check_collection
         _check_collection("secrets")
 

@@ -63,7 +63,8 @@ def test_get_llm_openai():
 
 def test_get_llm_unsupported():
     Config.LLM_PROVIDER = "llama"
-    with pytest.raises(ValueError, match="Unsupported LLM provider"):
+    from errors import UnsupportedProviderError
+    with pytest.raises(UnsupportedProviderError, match="Unsupported LLM provider"):
         get_llm()
 
 

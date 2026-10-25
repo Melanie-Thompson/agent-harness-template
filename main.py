@@ -1,10 +1,12 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 
 from config import Config
+from errors import HarnessException
 from db.conversations import close_conversation_store, init_conversation_store
 from db.mongo import close_mongo, init_mongo
 from db.sessions import close_dragonfly, init_dragonfly
@@ -44,6 +46,11 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+
+@app.exception_handler(HarnessException)
+async def harness_exception_handler(request: Request, exc: HarnessException) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
 @app.get("/health", response_model=HealthResponse, summary="Health check")
