@@ -1,6 +1,6 @@
-# TDA Harness
+# Basic Harness
 
-A reusable FastAPI template for AI harness projects. Production-ready auth, audited MongoDB, Redis sessions, and permission-based access control — ready to extend.
+A starting-point FastAPI template for building more elaborate harnesses. Production-ready auth, audited MongoDB, Redis sessions, and permission-based access control — ready to extend.
 
 ## Features
 

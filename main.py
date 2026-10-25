@@ -20,7 +20,16 @@ async def lifespan(app: FastAPI):
     await close_redis()
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    title="Basic Harness API",
+    description=(
+        "Reusable FastAPI template with OAuth (Google, GitHub), "
+        "passwordless auth (magic links, OTP), Redis-backed sessions, "
+        "and MongoDB persistence."
+    ),
+    version="0.1.0",
+    lifespan=lifespan,
+)
 
 app.add_middleware(SessionMiddleware, secret_key=Config.MAGIC_LINK_SECRET)
 app.add_middleware(
@@ -34,6 +43,7 @@ app.add_middleware(
 app.include_router(router)
 
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health", response_model=HealthResponse, summary="Health check")
 async def health() -> HealthResponse:
+    """Return a simple status payload to confirm the service is running."""
     return HealthResponse(status="ok")
