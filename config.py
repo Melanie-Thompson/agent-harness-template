@@ -20,3 +20,12 @@ class Config:
     MAGIC_LINK_EXPIRE: int = int(os.getenv("MAGIC_LINK_EXPIRE", 600))
     OTP_EXPIRE: int = int(os.getenv("OTP_EXPIRE", 300))
     APP_URL: str = os.getenv("APP_URL", "http://localhost:8000")
+    GUARDRAILS_ENABLED: bool = os.getenv("GUARDRAILS_ENABLED", "true").lower() == "true"
+    GUARDRAILS_CONFIG_PATH: str = os.getenv("GUARDRAILS_CONFIG_PATH", "")
+    GUARDRAILS_MODEL: str = os.getenv("GUARDRAILS_MODEL", "")
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "gemini")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "")
+    LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", 0))
+    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")

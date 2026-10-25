@@ -12,12 +12,17 @@ A starting-point FastAPI template for building more elaborate harnesses. Product
 - **Soft deletes** — Deletes set `_meta.deleted_at`, excluded from queries automatically
 - **Pydantic everywhere** — Validated request/response schemas, domain models, and Meta audit trail
 - **Auto-discovered routes** — Drop a file in `routes/` with a `router`, it's registered automatically
+- **LLM integration** — LangChain connector with structured Pydantic output (Gemini, Anthropic, OpenAI)
+- **Configurable guardrails** — LLM-based input/output safety checks with YAML-driven rules, per-check toggles, and optional cheaper guardrail model
 
 ## Project Structure
 
 ```
 main.py                  # FastAPI app, lifespan, middleware
 config.py                # Env-backed Config class
+ai/
+  llm.py                 # LangChain LLM connector (Gemini, Anthropic, OpenAI)
+  guardrails.py          # Configurable input/output safety checks
 auth/
   oauth.py               # Google + GitHub OAuth via Authlib
   passwordless.py         # Magic link + OTP logic
@@ -33,6 +38,7 @@ models/
   meta.py                # Pydantic models: Change, Meta, MongoDocument
   user.py                # User model
 schemas/
+  ai.py                  # GuardrailConfig, GuardrailRulesConfig
   auth.py                # Auth request/response models
   db.py                  # QueryInput, QueryResult, Operation enum
   session.py             # SessionData, MessageResponse, MeResponse, HealthResponse
@@ -40,7 +46,8 @@ routes/
   __init__.py            # Auto-discovers all routers in this package
   auth.py                # Auth endpoints (OAuth, magic link, OTP)
   sessions.py            # Logout, /me
-tests/                   # 32 tests across 6 files
+guardrails.example.yaml  # Example guardrail rules config
+tests/                   # Tests across 8 files
 ```
 
 ## Setup
@@ -63,7 +70,7 @@ uv sync
 cp .env.example .env
 ```
 
-Edit `.env` with your credentials. For OAuth, set `GOOGLE_CLIENT_ID`/`SECRET` and `GITHUB_CLIENT_ID`/`SECRET`. For email, set `RESEND_API_KEY`. Generate a secret for magic links:
+Edit `.env` with your credentials. For OAuth, set `GOOGLE_CLIENT_ID`/`SECRET` and `GITHUB_CLIENT_ID`/`SECRET`. For email, set `RESEND_API_KEY`. For the LLM, set `GOOGLE_API_KEY` (default provider is Gemini). Generate a secret for magic links:
 
 ```bash
 openssl rand -hex 32
@@ -132,3 +139,53 @@ class Order(MongoDocument):
 ```
 
 The `_meta` audit trail and `_id` are inherited automatically.
+
+## LLM & Guardrails
+
+### Structured LLM output
+
+```python
+from pydantic import BaseModel
+from ai.llm import invoke_structured
+
+class Sentiment(BaseModel):
+    label: str
+    score: float
+
+result = await invoke_structured("Analyse: 'I love this'", Sentiment)
+# result.label == "positive", result.score == 0.95
+```
+
+### Guarded calls
+
+`invoke_guarded` wraps the LLM call with configurable input/output safety checks:
+
+```python
+from ai.guardrails import invoke_guarded
+
+resp = await invoke_guarded("user prompt", Sentiment)
+if resp.blocked:
+    print(resp.block_reason)
+else:
+    print(resp.result)
+```
+
+### Configuring guardrails
+
+Set env vars in `.env`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GUARDRAILS_ENABLED` | `true` | Global kill switch |
+| `GUARDRAILS_CONFIG_PATH` | _(empty)_ | Path to YAML rules file |
+| `GUARDRAILS_MODEL` | _(empty)_ | Cheaper model for safety checks |
+
+For custom rules, copy `guardrails.example.yaml` and point to it:
+
+```bash
+cp guardrails.example.yaml guardrails.yaml
+# Edit guardrails.yaml with your rules
+# Set GUARDRAILS_CONFIG_PATH=guardrails.yaml in .env
+```
+
+The YAML file lets you enable/disable input and output checks independently, replace the default rejection categories, and add custom rules per deployment.

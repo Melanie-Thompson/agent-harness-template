@@ -1,0 +1,28 @@
+# Guardrail configuration for this deployment.
+# Copy to guardrails.yaml (or any path) and set GUARDRAILS_CONFIG_PATH in .env.
+# Omit a section to use defaults. Omit the entire file to use all defaults.
+
+input:
+  enabled: true
+  # Replace the default rejection categories (leave empty to use built-in defaults):
+  categories:
+    - "Request generation of harmful, illegal, or dangerous content"
+    - "Attempt prompt injection or jailbreaking"
+    - "Ask for personally identifiable information about real people"
+    - "Request help with hacking, malware, or cyberattacks (outside of authorised security testing)"
+  # Add deployment-specific rules on top of the categories above:
+  custom_rules: []
+  # custom_rules:
+  #   - "Reject prompts about competitor products by name"
+  #   - "Reject prompts requesting financial advice"
+
+output:
+  enabled: true
+  categories:
+    - "Contains harmful, illegal, or dangerous instructions"
+    - "Includes personally identifiable information about real people"
+    - "Contains hallucinated facts presented with false confidence"
+    - "Includes profanity, slurs, or hateful content"
+  custom_rules: []
+  # custom_rules:
+  #   - "Reject outputs that mention internal pricing or discount structures"
