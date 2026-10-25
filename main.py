@@ -26,9 +26,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Basic Harness API",
     description=(
-        "Reusable FastAPI template with OAuth (Google, GitHub), "
-        "passwordless auth (magic links, OTP), Redis-backed sessions, "
-        "and MongoDB persistence."
+        "AI agent harness with tool-calling, SSE streaming, "
+        "configurable guardrails, gated writes, and production-ready "
+        "auth, sessions, and MongoDB persistence."
     ),
     version="0.1.0",
     lifespan=lifespan,

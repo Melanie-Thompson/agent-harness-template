@@ -2,7 +2,7 @@
 
 ## Project
 
-Reusable FastAPI template for AI harness projects. Python 3.13+, async everywhere, Pydantic validation at all boundaries.
+AI agent harness built on FastAPI. LLMs call tools through a multi-turn execution loop with SSE streaming, configurable guardrails, gated write confirmation, and user-scoped database access. Python 3.13+, async everywhere, Pydantic validation at all boundaries.
 
 ## Stack
 
