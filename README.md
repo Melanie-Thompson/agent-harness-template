@@ -16,6 +16,9 @@ A starting-point FastAPI template for building more elaborate harnesses. Product
 - **Auto-discovered routes** — Drop a file in `routes/` with a `router`, it's registered automatically
 - **LLM integration** — LangChain connector with structured Pydantic output (Gemini, Anthropic, OpenAI)
 - **Configurable guardrails** — LLM-based input/output safety checks with YAML-driven rules, per-check toggles, and optional cheaper guardrail model
+- **Tool registry** — Decorator-based `@harness_tool` with auto-discovery, permission filtering, and gated write support
+- **Agent loop** — Multi-turn tool-calling execution with SSE streaming, input/output guardrails, and conversation history
+- **Database tools** — LLM can query/mutate MongoDB through user-scoped, filter-sanitised, collection-allowlisted tools
 
 ## Project Structure
 
@@ -26,6 +29,10 @@ ai/
   llm.py                 # LangChain LLM connector (Gemini, Anthropic, OpenAI)
   guardrails.py          # Configurable input/output safety checks
   context.py             # Conversation context builder for LLM calls
+  agent.py               # Multi-turn tool-calling execution loop (SSE)
+  tools/
+    base.py              # @harness_tool decorator, registry, permission filtering
+    db.py                # Database query/mutate tools with filter sanitisation
 auth/
   oauth.py               # Google + GitHub OAuth via Authlib
   passwordless.py         # Magic link + OTP logic
@@ -42,6 +49,7 @@ models/
   meta.py                # Pydantic models: Change, Meta, MongoDocument
   user.py                # User model
 schemas/
+  agent.py               # AgentChatRequest, ConfirmRequest, AgentEvent
   ai.py                  # GuardrailConfig, GuardrailRulesConfig
   auth.py                # Auth request/response models
   conversation.py        # ConversationMessage, ConversationSummary, Role
@@ -49,10 +57,11 @@ schemas/
   session.py             # SessionData, MessageResponse, MeResponse, HealthResponse
 routes/
   __init__.py            # Auto-discovers all routers in this package
+  agent.py               # Agent chat (SSE) + gated tool confirmation
   auth.py                # Auth endpoints (OAuth, magic link, OTP)
   sessions.py            # Logout, /me
 guardrails.example.yaml  # Example guardrail rules config
-tests/                   # Tests across 10 files
+tests/                   # Tests across 12 files
 ```
 
 ## Setup
@@ -111,6 +120,10 @@ uv run pytest tests/ -v
 ### Sessions
 - `GET /sessions/me` — current user info (requires `read:self`)
 - `POST /sessions/logout` — destroys session
+
+### Agent
+- `POST /agent/chat` — SSE-streamed agent conversation with tool calling (requires `agent:use`)
+- `POST /agent/confirm/{pending_id}` — approve or deny a gated tool call (requires `agent:use`)
 
 ## Adding New Endpoints
 
@@ -251,3 +264,69 @@ The context builder trims from oldest messages first to fit within the configure
 | `HARNESS_CONVERSATION_TTL` | `1800` | Sliding TTL in seconds for conversation keys |
 | `CONTEXT_MAX_MESSAGES` | `50` | Max messages to include as context |
 | `CONTEXT_MAX_TOKENS` | `4000` | Approximate token budget for context |
+
+## Tool Registry & Agent
+
+### How the tool-calling loop works
+
+The agent endpoint (`POST /agent/chat`) streams events via SSE as the LLM reasons and calls tools:
+
+1. **Input guardrail** checks the user prompt
+2. **Conversation history** is loaded and injected as context
+3. The LLM is bound to the user's permitted tools via `bind_tools`
+4. **Loop**: LLM responds → if it requests tool calls, execute them, send results back, repeat
+5. **Output guardrail** checks the final response
+6. All messages (user, assistant, tool) are stored in the conversation
+
+### Adding a custom tool
+
+Drop a file in `ai/tools/` — it's auto-discovered:
+
+```python
+# ai/tools/weather.py
+from ai.tools.base import harness_tool
+
+@harness_tool("get_weather", description="Get current weather for a city")
+async def get_weather(city: str, units: str = "celsius") -> str:
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"https://api.weather.com/{city}")
+        data = resp.json()
+    return f"{data['temp']}°{units[0].upper()}, {data['condition']}"
+```
+
+The decorator handles LangChain schema generation from type hints, tool registration, and permission metadata.
+
+### Built-in database tools
+
+| Tool | Operation | Gated | Permission |
+|------|-----------|-------|------------|
+| `db_query` | `find`, `find_one` | No | `db:read` |
+| `db_mutate` | `insert_one`, `update_one`, `delete_one` | Yes | `db:write` |
+
+**Security**: All database tools are user-scoped through `DbConnect`, with `_meta` keys recursively stripped from LLM-generated filters to prevent scope escape. An optional collection allowlist restricts which collections the LLM can access.
+
+### Gated writes
+
+Write operations (`db_mutate`) don't execute immediately. The agent yields a `tool_pending` SSE event with the proposed action. The client must call `POST /agent/confirm/{pending_id}` to approve or deny before execution continues.
+
+### SSE event types
+
+| Event | Description |
+|-------|-------------|
+| `thinking` | Agent is processing (includes iteration number) |
+| `tool_call` | LLM requested a tool call (includes tool name and args) |
+| `tool_result` | Tool executed successfully (includes result) |
+| `tool_pending` | Gated tool awaiting confirmation (includes pending_id) |
+| `tool_confirmed` | User approved a gated tool |
+| `tool_denied` | User denied a gated tool |
+| `response` | Final agent response |
+| `blocked` | Guardrail blocked input or output |
+| `error` | Error occurred (tool not found, max iterations, etc.) |
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENT_MAX_ITERATIONS` | `10` | Max tool-calling loop iterations |
+| `AGENT_ALLOWED_COLLECTIONS` | _(empty = all)_ | Comma-separated collection allowlist |
+| `AGENT_SYSTEM_PROMPT` | _(default prompt)_ | System prompt for the agent |

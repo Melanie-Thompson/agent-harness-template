@@ -36,3 +36,11 @@ class Config:
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+    AGENT_MAX_ITERATIONS: int = int(os.getenv("AGENT_MAX_ITERATIONS", "10"))
+    AGENT_ALLOWED_COLLECTIONS: list[str] = [
+        c.strip() for c in os.getenv("AGENT_ALLOWED_COLLECTIONS", "").split(",") if c.strip()
+    ]
+    AGENT_SYSTEM_PROMPT: str = os.getenv(
+        "AGENT_SYSTEM_PROMPT",
+        "You are a helpful assistant with access to tools. Use them when needed to answer the user's questions.",
+    )
