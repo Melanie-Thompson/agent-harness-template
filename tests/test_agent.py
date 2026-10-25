@@ -89,7 +89,7 @@ async def test_agent_tool_call_and_response():
 
 
 async def test_agent_max_iterations():
-    tool_call_msg = AIMessage(content="", tool_calls=[{"name": "db_query", "args": {"operation": "find", "collection": "items"}, "id": "call-1"}])
+    tool_call_msg = AIMessage(content="", tool_calls=[{"name": "db_read", "args": {"collection": "items", "pipeline": []}, "id": "call-1"}])
     mock_llm = _mock_llm_responses(*([tool_call_msg] * 5))
 
     from ai.tools.db import set_db_context
