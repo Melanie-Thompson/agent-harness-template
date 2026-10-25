@@ -4,4 +4,6 @@ __pycache__/
 .env
 .idea/
 .pytest_cache/
+.coverage
+htmlcov/
 uv.lock
