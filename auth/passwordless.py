@@ -4,7 +4,7 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 from auth.email import send_email
 from config import Config
-from db.sessions import get_redis
+from db.sessions import get_dragonfly
 
 _serializer: URLSafeTimedSerializer | None = None
 
@@ -35,7 +35,7 @@ def verify_magic_link(token: str) -> str | None:
 
 async def send_otp(email: str) -> None:
     code = f"{secrets.randbelow(1000000):06d}"
-    r = get_redis()
+    r = get_dragonfly()
     await r.set(f"otp:{email}", code, ex=Config.OTP_EXPIRE)
     await send_email(
         to=email,
@@ -45,7 +45,7 @@ async def send_otp(email: str) -> None:
 
 
 async def verify_otp(email: str, code: str) -> bool:
-    r = get_redis()
+    r = get_dragonfly()
     stored = await r.get(f"otp:{email}")
     if not stored or stored != code:
         return False

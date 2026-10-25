@@ -4,7 +4,7 @@ from httpx import AsyncClient
 
 from auth.passwordless import verify_magic_link, _get_serializer
 from db.mongo import get_mongo_db
-from db.sessions import get_redis
+from db.sessions import get_dragonfly
 
 
 async def test_otp_send(client: AsyncClient):
@@ -14,14 +14,14 @@ async def test_otp_send(client: AsyncClient):
         assert resp.json()["message"] == "Verification code sent"
         mock_send.assert_called_once()
 
-    r = get_redis()
+    r = get_dragonfly()
     code = await r.get("otp:test@example.com")
     assert code is not None
     assert len(code) == 6
 
 
 async def test_otp_verify_success(client: AsyncClient):
-    r = get_redis()
+    r = get_dragonfly()
     await r.set("otp:test@example.com", "123456", ex=300)
 
     resp = await client.post("/auth/otp/verify", json={"email": "test@example.com", "code": "123456"})
@@ -35,7 +35,7 @@ async def test_otp_verify_success(client: AsyncClient):
 
 
 async def test_otp_verify_wrong_code(client: AsyncClient):
-    r = get_redis()
+    r = get_dragonfly()
     await r.set("otp:test@example.com", "123456", ex=300)
 
     resp = await client.post("/auth/otp/verify", json={"email": "test@example.com", "code": "999999"})
@@ -70,7 +70,7 @@ async def test_magic_link_verify_invalid(client: AsyncClient):
 
 
 async def test_otp_creates_user_in_mongo(client: AsyncClient):
-    r = get_redis()
+    r = get_dragonfly()
     await r.set("otp:newuser@example.com", "111111", ex=300)
 
     resp = await client.post("/auth/otp/verify", json={"email": "newuser@example.com", "code": "111111"})
@@ -84,7 +84,7 @@ async def test_otp_creates_user_in_mongo(client: AsyncClient):
 
 
 async def test_otp_reuses_existing_user(client: AsyncClient):
-    r = get_redis()
+    r = get_dragonfly()
     await r.set("otp:repeat@example.com", "111111", ex=300)
     resp1 = await client.post("/auth/otp/verify", json={"email": "repeat@example.com", "code": "111111"})
 
@@ -99,7 +99,7 @@ async def test_otp_reuses_existing_user(client: AsyncClient):
 
 
 async def test_session_works_after_otp_login(client: AsyncClient):
-    r = get_redis()
+    r = get_dragonfly()
     await r.set("otp:flow@example.com", "123456", ex=300)
 
     resp = await client.post("/auth/otp/verify", json={"email": "flow@example.com", "code": "123456"})

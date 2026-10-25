@@ -4,6 +4,7 @@ import pytest
 from pydantic import BaseModel
 
 from ai.llm import get_llm, invoke_structured, DEFAULT_MODELS
+from config import Config
 
 
 class Sentiment(BaseModel):
@@ -16,24 +17,36 @@ class Summary(BaseModel):
     points: list[str]
 
 
+@pytest.fixture(autouse=True)
+def _reset_llm_config():
+    orig = {
+        "LLM_PROVIDER": Config.LLM_PROVIDER,
+        "LLM_MODEL": Config.LLM_MODEL,
+        "LLM_TEMPERATURE": Config.LLM_TEMPERATURE,
+        "ANTHROPIC_API_KEY": Config.ANTHROPIC_API_KEY,
+        "OPENAI_API_KEY": Config.OPENAI_API_KEY,
+        "GOOGLE_API_KEY": Config.GOOGLE_API_KEY,
+    }
+    yield
+    for k, v in orig.items():
+        setattr(Config, k, v)
+
+
 # --- get_llm ---
 
 
 def test_get_llm_gemini():
-    with patch.dict("os.environ", {"LLM_PROVIDER": "gemini", "GOOGLE_API_KEY": "fake"}):
-        from config import Config
-
-        Config.LLM_PROVIDER = "gemini"
-        Config.GOOGLE_API_KEY = "fake"
-        llm = get_llm()
-        assert type(llm).__name__ == "ChatGoogleGenerativeAI"
-        assert "gemini-2.5-flash" in llm.model
+    Config.LLM_PROVIDER = "gemini"
+    Config.LLM_MODEL = ""
+    Config.GOOGLE_API_KEY = "fake"
+    llm = get_llm()
+    assert type(llm).__name__ == "ChatGoogleGenerativeAI"
+    assert "gemini-2.5-flash" in llm.model
 
 
 def test_get_llm_anthropic():
-    from config import Config
-
     Config.LLM_PROVIDER = "anthropic"
+    Config.LLM_MODEL = ""
     Config.ANTHROPIC_API_KEY = "fake"
     llm = get_llm()
     assert type(llm).__name__ == "ChatAnthropic"
@@ -41,17 +54,14 @@ def test_get_llm_anthropic():
 
 
 def test_get_llm_openai():
-    from config import Config
-
     Config.LLM_PROVIDER = "openai"
+    Config.LLM_MODEL = ""
     Config.OPENAI_API_KEY = "fake"
     llm = get_llm()
     assert type(llm).__name__ == "ChatOpenAI"
 
 
 def test_get_llm_unsupported():
-    from config import Config
-
     Config.LLM_PROVIDER = "llama"
     with pytest.raises(ValueError, match="Unsupported LLM provider"):
         get_llm()
@@ -104,11 +114,9 @@ async def test_invoke_structured_uses_default_llm():
 
 
 def test_get_llm_model_override():
-    from config import Config
-
     Config.LLM_PROVIDER = "anthropic"
-    Config.ANTHROPIC_API_KEY = "fake"
     Config.LLM_MODEL = "claude-sonnet-4-20250514"
+    Config.ANTHROPIC_API_KEY = "fake"
 
     llm = get_llm(model_override="claude-haiku-4-20250414")
     assert llm.model == "claude-haiku-4-20250414"

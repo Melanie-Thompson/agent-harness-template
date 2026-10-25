@@ -1,7 +1,7 @@
 [project]
-name = "tda-harness"
+name = "basic-harness"
 version = "0.1.0"
-description = "Add your description here"
+description = "Reusable FastAPI template for AI harness projects"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115",

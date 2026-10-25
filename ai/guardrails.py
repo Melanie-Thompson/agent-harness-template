@@ -149,14 +149,17 @@ async def invoke_guarded(
     *,
     model: BaseChatModel | None = None,
     guardrail_model: BaseChatModel | None = None,
+    conversation_id: str | None = None,
 ) -> GuardedResponse:
     input_check = await check_input(prompt, model=guardrail_model)
     if not input_check.safe:
         return GuardedResponse(blocked=True, block_reason=input_check.reason)
 
-    llm = model or get_llm()
-    structured_llm = llm.with_structured_output(output_schema)
-    result = await structured_llm.ainvoke(prompt)
+    from ai.llm import invoke_structured
+
+    result = await invoke_structured(
+        prompt, output_schema, model=model, conversation_id=conversation_id,
+    )
 
     output_check = await check_output(result.model_dump_json(), model=guardrail_model)
     if not output_check.safe:

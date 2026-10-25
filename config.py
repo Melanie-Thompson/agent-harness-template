@@ -6,7 +6,14 @@ load_dotenv()
 
 
 class Config:
-    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    DRAGONFLY_URL: str = os.getenv("DRAGONFLY_URL", os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+    CONVERSATION_STORE_URL: str = os.getenv(
+        "HARNESS_CONVERSATION_STORE_URL",
+        os.getenv("DRAGONFLY_URL", os.getenv("REDIS_URL", "redis://localhost:6379/0")),
+    )
+    CONVERSATION_TTL: int = int(os.getenv("HARNESS_CONVERSATION_TTL", "1800"))
+    CONTEXT_MAX_MESSAGES: int = int(os.getenv("CONTEXT_MAX_MESSAGES", "50"))
+    CONTEXT_MAX_TOKENS: int = int(os.getenv("CONTEXT_MAX_TOKENS", "4000"))
     SESSION_EXPIRE_SECONDS: int = int(os.getenv("SESSION_EXPIRE_SECONDS", 3600 * 8))
     COOKIE_SECURE: bool = os.getenv("COOKIE_SECURE", "false").lower() == "true"
     MONGO_URL: str = os.getenv("MONGO_URL", "mongodb://localhost:27017")

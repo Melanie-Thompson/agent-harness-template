@@ -1,11 +1,13 @@
 # Basic Harness
 
-A starting-point FastAPI template for building more elaborate harnesses. Production-ready auth, audited MongoDB, Redis sessions, and permission-based access control — ready to extend.
+A starting-point FastAPI template for building more elaborate harnesses. Production-ready auth, audited MongoDB, Dragonfly sessions, conversation storage, and permission-based access control — ready to extend.
 
 ## Features
 
 - **Auth** — OAuth (Google + GitHub), magic link, email OTP. No passwords.
-- **Sessions** — Secure server-side sessions in Redis with httponly cookies
+- **Sessions** — Secure server-side sessions in Dragonfly with httponly cookies
+- **Conversation store** — Message-level conversation history in Dragonfly sorted sets with TTL-based sliding window
+- **Context management** — Automatic conversation history injection into LLM calls with token/message budget trimming
 - **Permissions** — Fine-grained RBAC. Each endpoint declares required permissions via `Depends(require("read:reports"))`
 - **MongoDB** — Async via Motor. Every document carries audited `_meta` (created/updated/deleted timestamps, user tracking, change deltas)
 - **User scoping** — All queries automatically filtered to the logged-in user
@@ -23,6 +25,7 @@ config.py                # Env-backed Config class
 ai/
   llm.py                 # LangChain LLM connector (Gemini, Anthropic, OpenAI)
   guardrails.py          # Configurable input/output safety checks
+  context.py             # Conversation context builder for LLM calls
 auth/
   oauth.py               # Google + GitHub OAuth via Authlib
   passwordless.py         # Magic link + OTP logic
@@ -33,13 +36,15 @@ db/
   meta.py                # Meta builder functions (create/update/delete)
   mongo.py               # Motor client lifecycle
   objectid.py            # ObjectId serialisation (single source of truth)
-  sessions.py            # Redis session CRUD
+  sessions.py            # Dragonfly session CRUD
+  conversations.py       # Conversation message store (sorted sets)
 models/
   meta.py                # Pydantic models: Change, Meta, MongoDocument
   user.py                # User model
 schemas/
   ai.py                  # GuardrailConfig, GuardrailRulesConfig
   auth.py                # Auth request/response models
+  conversation.py        # ConversationMessage, ConversationSummary, Role
   db.py                  # QueryInput, QueryResult, Operation enum
   session.py             # SessionData, MessageResponse, MeResponse, HealthResponse
 routes/
@@ -47,7 +52,7 @@ routes/
   auth.py                # Auth endpoints (OAuth, magic link, OTP)
   sessions.py            # Logout, /me
 guardrails.example.yaml  # Example guardrail rules config
-tests/                   # Tests across 8 files
+tests/                   # Tests across 10 files
 ```
 
 ## Setup
@@ -55,7 +60,7 @@ tests/                   # Tests across 8 files
 ### Prerequisites
 
 - Python 3.13+
-- Redis
+- Dragonfly (or Redis — wire-compatible)
 - MongoDB
 
 ### Install
@@ -189,3 +194,60 @@ cp guardrails.example.yaml guardrails.yaml
 ```
 
 The YAML file lets you enable/disable input and output checks independently, replace the default rejection categories, and add custom rules per deployment.
+
+## Conversation Store & Context Management
+
+### How it works
+
+Conversations are stored in Dragonfly sorted sets, keyed by conversation ID with Unix-millisecond scores for ordering. Each message is a full JSON document (role, content, timestamp, token usage, model, metadata). All keys use a sliding TTL — activity refreshes expiry.
+
+Key schema:
+- `conv:{id}` — sorted set of messages
+- `conv_meta:{id}` — hash with `user_id`, `session_id`, `created_at`
+- `user_convs:{user_id}` — sorted set index of conversations per user
+
+### Storing messages
+
+```python
+from db.conversations import create_conversation, add_message
+from schemas.conversation import ConversationMessage, Role
+from datetime import datetime, timezone
+
+conv_id = await create_conversation(user_id="user-1", session_id="sess-1")
+
+await add_message(ConversationMessage(
+    conversation_id=conv_id,
+    message_id="msg-001",
+    session_id="sess-1",
+    user_id="user-1",
+    role=Role.USER,
+    timestamp=datetime.now(timezone.utc),
+    content="What is the capital of France?",
+))
+```
+
+### Context-aware LLM calls
+
+Pass `conversation_id` to `invoke_structured` or `invoke_guarded` and prior conversation history is automatically prepended to the LLM prompt:
+
+```python
+from ai.llm import invoke_structured
+
+result = await invoke_structured(
+    "Follow-up question here",
+    MySchema,
+    conversation_id=conv_id,
+)
+```
+
+The context builder trims from oldest messages first to fit within the configured token and message budgets.
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DRAGONFLY_URL` | `redis://localhost:6379/0` | Dragonfly connection (falls back to `REDIS_URL`) |
+| `HARNESS_CONVERSATION_STORE_URL` | _(same as DRAGONFLY_URL)_ | Separate DB for conversations |
+| `HARNESS_CONVERSATION_TTL` | `1800` | Sliding TTL in seconds for conversation keys |
+| `CONTEXT_MAX_MESSAGES` | `50` | Max messages to include as context |
+| `CONTEXT_MAX_TOKENS` | `4000` | Approximate token budget for context |

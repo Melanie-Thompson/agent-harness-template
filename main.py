@@ -5,19 +5,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from config import Config
+from db.conversations import close_conversation_store, init_conversation_store
 from db.mongo import close_mongo, init_mongo
-from db.sessions import close_redis, init_redis
+from db.sessions import close_dragonfly, init_dragonfly
 from routes import router
 from schemas.session import HealthResponse
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_redis()
+    await init_dragonfly()
+    await init_conversation_store()
     await init_mongo()
     yield
     await close_mongo()
-    await close_redis()
+    await close_conversation_store()
+    await close_dragonfly()
 
 
 app = FastAPI(

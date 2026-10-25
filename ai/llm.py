@@ -54,7 +54,19 @@ async def invoke_structured(
     output_schema: type[T],
     *,
     model: BaseChatModel | None = None,
+    conversation_id: str | None = None,
 ) -> T:
     llm = model or get_llm()
     structured_llm = llm.with_structured_output(output_schema)
+
+    if conversation_id:
+        from ai.context import build_context
+        from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+        role_map = {"user": HumanMessage, "assistant": AIMessage, "system": SystemMessage}
+        history = await build_context(conversation_id)
+        messages = [role_map.get(m["role"], HumanMessage)(content=m["content"]) for m in history]
+        messages.append(HumanMessage(content=prompt))
+        return await structured_llm.ainvoke(messages)
+
     return await structured_llm.ainvoke(prompt)
