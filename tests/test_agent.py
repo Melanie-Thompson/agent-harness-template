@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
-from ai.agent import confirm_pending, invoke_agent, _pending_confirmations
+from ai.agent import invoke_agent
+from ai.pending import resolve_pending, _pending_futures
 from ai.tools.base import get_tool, get_tools, harness_tool, _registry, clear_registry
 from config import Config
 from schemas.agent import AgentEvent
@@ -22,9 +23,9 @@ def _reset_config(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _clean_pending():
-    _pending_confirmations.clear()
+    _pending_futures.clear()
     yield
-    _pending_confirmations.clear()
+    _pending_futures.clear()
 
 
 def _mock_llm_responses(*responses):
@@ -111,13 +112,15 @@ async def test_agent_max_iterations():
     assert "maximum iterations" in events[-1].data.get("error", "")
 
 
-async def test_agent_input_guardrail_blocks(monkeypatch):
-    monkeypatch.setattr(Config, "GUARDRAILS_ENABLED", True)
+async def test_agent_input_eval_blocks():
+    from schemas.ai import EvalResult, EvalStage, EvalVerdict
 
-    from ai.guardrails import GuardrailResult
-    mock_result = GuardrailResult(safe=False, reason="Dangerous input")
+    async def mock_eval(stage, ctx):
+        if stage == EvalStage.INPUT:
+            return EvalResult(verdict=EvalVerdict.FAIL, reason="Dangerous input")
+        return EvalResult(verdict=EvalVerdict.PASS)
 
-    with patch("ai.agent.check_input", AsyncMock(return_value=mock_result)):
+    with patch("ai.agent.run_eval_stage", AsyncMock(side_effect=mock_eval)):
         events = await _collect_events(invoke_agent(
             "bad prompt",
             tools=[],
@@ -129,20 +132,20 @@ async def test_agent_input_guardrail_blocks(monkeypatch):
     assert events[0].data["stage"] == "input"
 
 
-async def test_agent_output_guardrail_blocks(monkeypatch):
-    monkeypatch.setattr(Config, "GUARDRAILS_ENABLED", True)
+async def test_agent_output_eval_blocks():
+    from schemas.ai import EvalResult, EvalStage, EvalVerdict
 
-    from ai.guardrails import GuardrailResult
-    safe_input = GuardrailResult(safe=True)
-    unsafe_output = GuardrailResult(safe=False, reason="Bad output")
+    async def mock_eval(stage, ctx):
+        if stage == EvalStage.OUTPUT:
+            return EvalResult(verdict=EvalVerdict.FAIL, reason="Bad output")
+        return EvalResult(verdict=EvalVerdict.PASS)
 
     ai_msg = AIMessage(content="something harmful")
     mock_llm = _mock_llm_responses(ai_msg)
 
     with (
         patch("ai.agent.get_llm", return_value=mock_llm),
-        patch("ai.agent.check_input", AsyncMock(return_value=safe_input)),
-        patch("ai.agent.check_output", AsyncMock(return_value=unsafe_output)),
+        patch("ai.agent.run_eval_stage", AsyncMock(side_effect=mock_eval)),
     ):
         events = await _collect_events(invoke_agent(
             "prompt",
@@ -152,6 +155,90 @@ async def test_agent_output_guardrail_blocks(monkeypatch):
         ))
 
     assert any(e.type == "blocked" and e.data["stage"] == "output" for e in events)
+
+
+async def test_agent_tool_result_eval_veto():
+    from schemas.ai import EvalResult, EvalStage, EvalVerdict
+
+    @harness_tool("test_vetoed", description="Will be vetoed")
+    async def test_vetoed(x: str) -> str:
+        return f"result: {x}"
+
+    try:
+        call_count = 0
+
+        async def mock_eval(stage, ctx):
+            nonlocal call_count
+            if stage == EvalStage.TOOL_RESULT:
+                call_count += 1
+                return EvalResult(verdict=EvalVerdict.FAIL, reason="Dangerous result")
+            return EvalResult(verdict=EvalVerdict.PASS)
+
+        tool_call_msg = AIMessage(content="", tool_calls=[
+            {"name": "test_vetoed", "args": {"x": "hello"}, "id": "call-v1"},
+        ])
+        final_msg = AIMessage(content="OK")
+        mock_llm = _mock_llm_responses(tool_call_msg, final_msg)
+
+        with (
+            patch("ai.agent.get_llm", return_value=mock_llm),
+            patch("ai.agent.run_eval_stage", AsyncMock(side_effect=mock_eval)),
+        ):
+            events = await _collect_events(invoke_agent(
+                "Do vetoed thing",
+                tools=[test_vetoed],
+                user_id="user-1",
+                session_id="sess-1",
+            ))
+
+        types = [e.type for e in events]
+        assert "blocked" in types
+        blocked_event = next(e for e in events if e.type == "blocked")
+        assert blocked_event.data["stage"] == "tool_result"
+    finally:
+        _registry.pop("test_vetoed", None)
+
+
+async def test_agent_tool_result_eval_retry():
+    from schemas.ai import EvalResult, EvalStage, EvalVerdict
+
+    @harness_tool("test_retry", description="Will trigger retry")
+    async def test_retry(x: str) -> str:
+        return f"result: {x}"
+
+    try:
+        async def mock_eval(stage, ctx):
+            if stage == EvalStage.TOOL_RESULT:
+                return EvalResult(
+                    verdict=EvalVerdict.RETRY,
+                    reason="Try again",
+                    corrective_context="Use a different approach",
+                )
+            return EvalResult(verdict=EvalVerdict.PASS)
+
+        tool_call_msg = AIMessage(content="", tool_calls=[
+            {"name": "test_retry", "args": {"x": "hello"}, "id": "call-r1"},
+        ])
+        final_msg = AIMessage(content="Done after retry")
+        mock_llm = _mock_llm_responses(tool_call_msg, final_msg)
+
+        with (
+            patch("ai.agent.get_llm", return_value=mock_llm),
+            patch("ai.agent.run_eval_stage", AsyncMock(side_effect=mock_eval)),
+        ):
+            events = await _collect_events(invoke_agent(
+                "Do retry thing",
+                tools=[test_retry],
+                user_id="user-1",
+                session_id="sess-1",
+            ))
+
+        types = [e.type for e in events]
+        assert "eval_retry" in types
+        retry_event = next(e for e in events if e.type == "eval_retry")
+        assert retry_event.data["stage"] == "tool_result"
+    finally:
+        _registry.pop("test_retry", None)
 
 
 async def test_agent_gated_tool_pending():
@@ -166,8 +253,8 @@ async def test_agent_gated_tool_pending():
 
         async def approve_after_yield():
             await asyncio.sleep(0.05)
-            for pid in list(_pending_confirmations.keys()):
-                await confirm_pending(pid, True)
+            for pid in list(_pending_futures.keys()):
+                await resolve_pending(pid, True)
 
         with patch("ai.agent.get_llm", return_value=mock_llm):
             task = asyncio.create_task(approve_after_yield())
@@ -199,8 +286,8 @@ async def test_agent_gated_tool_denied():
 
         async def deny_after_yield():
             await asyncio.sleep(0.05)
-            for pid in list(_pending_confirmations.keys()):
-                await confirm_pending(pid, False)
+            for pid in list(_pending_futures.keys()):
+                await resolve_pending(pid, False)
 
         with patch("ai.agent.get_llm", return_value=mock_llm):
             task = asyncio.create_task(deny_after_yield())
@@ -258,6 +345,26 @@ async def test_agent_stores_conversation(monkeypatch):
     assert "assistant" in roles
 
 
-async def test_confirm_pending_unknown_id():
-    result = await confirm_pending("nonexistent", True)
-    assert result is False
+async def test_resolve_pending_unknown_id():
+    from errors import PendingActionNotFoundError
+    with pytest.raises(PendingActionNotFoundError):
+        await resolve_pending("nonexistent", True)
+
+
+async def test_resolve_pending_idempotent():
+    from ai.pending import create_pending
+
+    future = await create_pending(
+        "test-idempotent",
+        tool_name="test_tool",
+        tool_args={"x": 1},
+        user_id="user-1",
+    )
+
+    action = await resolve_pending("test-idempotent", True)
+    assert action == "approved"
+    assert future.result() is True
+
+    from errors import PendingActionNotFoundError
+    with pytest.raises(PendingActionNotFoundError):
+        await resolve_pending("test-idempotent", True)

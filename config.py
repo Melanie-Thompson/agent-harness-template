@@ -37,6 +37,7 @@ class Config:
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
     AGENT_MAX_ITERATIONS: int = int(os.getenv("AGENT_MAX_ITERATIONS", "10"))
+    AGENT_PENDING_TTL: int = int(os.getenv("AGENT_PENDING_TTL", "300"))
     AGENT_ALLOWED_COLLECTIONS: list[str] = [
         c.strip() for c in os.getenv("AGENT_ALLOWED_COLLECTIONS", "").split(",") if c.strip()
     ]

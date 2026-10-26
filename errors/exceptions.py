@@ -69,3 +69,10 @@ class NotInitializedError(HarnessException):
 
     def __init__(self, name: str):
         super().__init__(f"{name} not initialized — call its init function first")
+
+
+class PendingActionNotFoundError(HarnessException):
+    status_code = 404
+
+    def __init__(self, pending_id: str):
+        super().__init__(f"Pending action '{pending_id}' not found or already resolved")

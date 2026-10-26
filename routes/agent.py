@@ -6,7 +6,8 @@ from collections.abc import AsyncGenerator
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
-from ai.agent import confirm_pending, invoke_agent
+from ai.agent import invoke_agent
+from ai.pending import resolve_pending
 from ai.tools.base import get_tools
 from ai.tools.db import set_db_context
 from auth import require
@@ -54,8 +55,5 @@ async def confirm_tool(
     body: ConfirmRequest,
     session: SessionData = Depends(require("agent:use")),
 ) -> MessageResponse:
-    found = await confirm_pending(pending_id, body.approved)
-    if not found:
-        return MessageResponse(message="Pending action not found or already resolved")
-    action = "approved" if body.approved else "denied"
+    action = await resolve_pending(pending_id, body.approved)
     return MessageResponse(message=f"Tool call {action}")

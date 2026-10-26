@@ -6,6 +6,7 @@ from errors.exceptions import (
     NoDbContextError,
     NotInitializedError,
     OAuthEmailError,
+    PendingActionNotFoundError,
     ToolExecutionError,
     UnsupportedOperationError,
     UnsupportedProviderError,

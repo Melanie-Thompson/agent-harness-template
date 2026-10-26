@@ -16,27 +16,19 @@ from langchain_core.messages import (
 from langchain_core.tools import BaseTool
 
 from ai.context import build_context
-from ai.guardrails import check_input, check_output
+from ai.evals.pipeline import run_eval_stage
 from ai.llm import get_llm
+from ai.pending import cleanup_pending, create_pending
 from ai.tools.base import get_tool
 from config import Config
 from db.conversations import add_message
 from schemas.agent import AgentEvent
+from schemas.ai import EvalContext, EvalStage, EvalVerdict
 from schemas.conversation import ConversationMessage, Role
-
-_pending_confirmations: dict[str, asyncio.Future[bool]] = {}
 
 
 def _make_message_id() -> str:
     return f"{int(datetime.now(timezone.utc).timestamp() * 1000):013d}-{uuid4().hex[:12]}"
-
-
-async def confirm_pending(pending_id: str, approved: bool) -> bool:
-    future = _pending_confirmations.pop(pending_id, None)
-    if future is None:
-        return False
-    future.set_result(approved)
-    return True
 
 
 async def invoke_agent(
@@ -52,9 +44,11 @@ async def invoke_agent(
 ) -> AsyncGenerator[AgentEvent, None]:
     max_iterations = max_iterations or Config.AGENT_MAX_ITERATIONS
 
-    input_check = await check_input(prompt)
-    if not input_check.safe:
-        yield AgentEvent(type="blocked", data={"reason": input_check.reason, "stage": "input"})
+    input_eval = await run_eval_stage(
+        EvalStage.INPUT, EvalContext(user_id=user_id, stage=EvalStage.INPUT, prompt=prompt),
+    )
+    if input_eval.verdict != EvalVerdict.PASS:
+        yield AgentEvent(type="blocked", data={"reason": input_eval.reason, "stage": "input"})
         return
 
     llm = get_llm(model_override=model)
@@ -96,9 +90,11 @@ async def invoke_agent(
             if isinstance(content, list):
                 content = " ".join(str(c) for c in content)
 
-            output_check = await check_output(content)
-            if not output_check.safe:
-                yield AgentEvent(type="blocked", data={"reason": output_check.reason, "stage": "output"})
+            output_eval = await run_eval_stage(
+                EvalStage.OUTPUT, EvalContext(user_id=user_id, stage=EvalStage.OUTPUT, output=content),
+            )
+            if output_eval.verdict != EvalVerdict.PASS:
+                yield AgentEvent(type="blocked", data={"reason": output_eval.reason, "stage": "output"})
                 return
 
             if conversation_id and session_id:
@@ -133,9 +129,12 @@ async def invoke_agent(
 
             if is_gated:
                 pending_id = uuid4().hex
-                loop = asyncio.get_running_loop()
-                future: asyncio.Future[bool] = loop.create_future()
-                _pending_confirmations[pending_id] = future
+                future = await create_pending(
+                    pending_id,
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    user_id=user_id,
+                )
 
                 yield AgentEvent(
                     type="tool_pending",
@@ -143,9 +142,9 @@ async def invoke_agent(
                 )
 
                 try:
-                    approved = await asyncio.wait_for(future, timeout=300)
+                    approved = await asyncio.wait_for(future, timeout=Config.AGENT_PENDING_TTL)
                 except asyncio.TimeoutError:
-                    _pending_confirmations.pop(pending_id, None)
+                    await cleanup_pending(pending_id)
                     approved = False
 
                 if not approved:
@@ -167,6 +166,35 @@ async def invoke_agent(
                 continue
 
             messages.append(ToolMessage(content=result, tool_call_id=tool_call_id))
+
+            tool_eval = await run_eval_stage(
+                EvalStage.TOOL_RESULT,
+                EvalContext(
+                    user_id=user_id,
+                    stage=EvalStage.TOOL_RESULT,
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    tool_result=result,
+                ),
+            )
+            if tool_eval.verdict == EvalVerdict.FAIL:
+                messages[-1] = ToolMessage(
+                    content=f"Tool result vetoed: {tool_eval.reason}",
+                    tool_call_id=tool_call_id,
+                    status="error",
+                )
+                yield AgentEvent(type="blocked", data={
+                    "reason": tool_eval.reason, "stage": "tool_result", "tool": tool_name,
+                })
+                continue
+            if tool_eval.verdict == EvalVerdict.RETRY:
+                messages.pop()
+                corrective = f"Previous result was rejected. {tool_eval.corrective_context or ''}"
+                messages.append(ToolMessage(content=corrective, tool_call_id=tool_call_id, status="error"))
+                yield AgentEvent(type="eval_retry", data={
+                    "reason": tool_eval.reason, "stage": "tool_result", "tool": tool_name,
+                })
+                continue
 
             if conversation_id and session_id:
                 await add_message(ConversationMessage(
