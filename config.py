@@ -41,6 +41,11 @@ class Config:
     AGENT_ALLOWED_COLLECTIONS: list[str] = [
         c.strip() for c in os.getenv("AGENT_ALLOWED_COLLECTIONS", "").split(",") if c.strip()
     ]
+    MCP_SERVERS: str = os.getenv("MCP_SERVERS", "[]")
+    MCP_GATED_TOOLS: list[str] = [
+        t.strip() for t in os.getenv("MCP_GATED_TOOLS", "").split(",") if t.strip()
+    ]
+    MCP_TOOL_PERMISSIONS: str = os.getenv("MCP_TOOL_PERMISSIONS", "{}")
     AGENT_SYSTEM_PROMPT: str = os.getenv(
         "AGENT_SYSTEM_PROMPT",
         "You are a helpful assistant with access to tools. Use them when needed to answer the user's questions.",

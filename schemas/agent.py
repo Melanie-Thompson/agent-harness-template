@@ -5,12 +5,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from schemas.mcp import McpServerConfig
+
 
 class AgentChatRequest(BaseModel):
     prompt: str
     conversation_id: str | None = None
     session_id: str | None = None
     model: str | None = None
+    mcp_servers: list[McpServerConfig] | None = None
 
 
 class ConfirmRequest(BaseModel):

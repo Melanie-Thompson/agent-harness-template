@@ -3,6 +3,7 @@ from errors.exceptions import (
     GuardrailViolationError,
     HarnessException,
     InvalidCredentialError,
+    McpConnectionError,
     NoDbContextError,
     NotInitializedError,
     OAuthEmailError,

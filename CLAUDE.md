@@ -10,6 +10,7 @@ AI agent harness built on FastAPI. LLMs call tools through a multi-turn executio
 - **MongoDB** via Motor (async) — all documents inherit `MongoDocument` for `_meta` audit trail
 - **Dragonfly** (Redis wire-compatible) — sessions, OTP, conversation store, pending action TTL
 - **LangChain** — LLM connector (Gemini, Anthropic, OpenAI) with structured output, tool calling
+- **MCP** via `langchain-mcp-adapters` — external tool servers (stdio, SSE, streamable HTTP)
 - **pytest-asyncio** with `asyncio_mode = "auto"`, pytest-cov for coverage
 
 ## Run & Test
@@ -74,6 +75,10 @@ async def eval_name(ctx: EvalContext) -> EvalResult: ...
 
 Evaluators return `EvalVerdict.PASS`, `FAIL` (blocks), or `RETRY` (with optional `corrective_context`). Pipeline config lives in `GuardrailConfig.eval_pipeline` (YAML or defaults). Empty evaluator list = run all registered for that stage.
 
+### MCP integration
+
+External MCP servers provide tools alongside built-in `@harness_tool` tools. Static default servers are configured via `MCP_SERVERS` (JSON env var) and connected at startup. Per-request servers can be passed in `AgentChatRequest.mcp_servers` and are cleaned up when the SSE stream ends. Tool merge precedence: per-request > static MCP > built-in. MCP tool metadata (`gated`, `permissions`) is injected from `MCP_GATED_TOOLS` and `MCP_TOOL_PERMISSIONS` config. The agent loop resolves tools from the merged `tools` parameter (not the built-in registry), so MCP and built-in tools are handled identically.
+
 ### Gated writes & pending actions
 
 Write tools set `gated=True` in `@harness_tool`. The agent loop stores pending action metadata in Dragonfly with TTL (`AGENT_PENDING_TTL`), creates an asyncio.Future for in-process signaling, and yields a `tool_pending` SSE event. The `/agent/confirm/{pending_id}` endpoint resolves or returns 404 (idempotent). Pending action logic lives in `ai/pending.py`.
@@ -86,7 +91,7 @@ Write tools set `gated=True` in `@harness_tool`. The agent loop stores pending a
 
 ### Singleton lifecycle
 
-Database connections follow `init_*()` / `get_*()` / `close_*()` pattern. Init in `main.py` lifespan, close on shutdown.
+Database and MCP connections follow `init_*()` / `get_*()` / `close_*()` pattern. Init in `main.py` lifespan, close on shutdown.
 
 ### Testing conventions
 
@@ -106,6 +111,8 @@ Database connections follow `init_*()` / `get_*()` / `close_*()` pattern. Init i
 | Built-in evaluators | `ai/evals/builtin.py` |
 | Eval pipeline | `ai/evals/pipeline.py` |
 | Pending actions | `ai/pending.py` |
+| MCP client | `ai/mcp.py` |
+| MCP schemas | `schemas/mcp.py` |
 | Tool registry | `ai/tools/base.py` |
 | DB tools | `ai/tools/db.py` |
 | Agent loop | `ai/agent.py` |

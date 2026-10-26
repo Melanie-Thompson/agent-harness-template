@@ -1,6 +1,6 @@
 # Agent Harness Template
 
-An AI agent harness built on FastAPI. Gives LLMs the ability to call tools — starting with user-scoped database operations — through a multi-turn execution loop with SSE streaming, configurable guardrails, and gated write confirmation. Production-ready auth, permissions, and audit trail included.
+An AI agent harness built on FastAPI. Gives LLMs the ability to call tools — including external MCP servers — through a multi-turn execution loop with SSE streaming, configurable eval pipeline, gated write confirmation, and user-scoped database access. Production-ready auth, permissions, and audit trail included.
 
 ## What it does
 
@@ -23,7 +23,9 @@ Write operations require **explicit user confirmation** before executing — the
 - **Declarative tool registry** — `@harness_tool` decorator with auto-discovery, permission filtering, gated write support
 - **Database tools** — user-scoped `db_query` (read) and `db_mutate` (gated write) with filter sanitisation and collection allowlisting
 - **Gated writes** — write tools yield a pending event; execution pauses until the client confirms via `/agent/confirm/{id}`
-- **Extensible** — add a tool by dropping a file in `ai/tools/` with a decorated async function
+- **MCP support** — connect external MCP servers (stdio, SSE, streamable HTTP) as static defaults or per-request overrides
+- **Eval pipeline** — three-stage evaluator pipeline (input, tool_result, output) with decorator-registered evaluators, retry semantics, and corrective context injection
+- **Extensible** — add a tool by dropping a file in `ai/tools/`, an evaluator in `ai/evals/`, or connect an MCP server
 
 ### LLM
 - **Multi-provider** — Gemini (default), Anthropic, OpenAI via LangChain
@@ -51,8 +53,14 @@ config.py                # Env-backed Config class
 ai/
   agent.py               # Multi-turn tool-calling execution loop (SSE)
   llm.py                 # LangChain LLM connector (Gemini, Anthropic, OpenAI)
+  mcp.py                 # MCP client lifecycle (static + per-request servers)
   guardrails.py          # Configurable input/output safety checks
+  pending.py             # Dragonfly-backed pending action lifecycle
   context.py             # Conversation context builder for LLM calls
+  evals/
+    base.py              # @evaluator decorator, registry, stage filtering
+    builtin.py           # Built-in evaluators wrapping guardrail checks
+    pipeline.py          # Eval pipeline orchestrator (run_eval_stage)
   tools/
     base.py              # @harness_tool decorator, registry, permission filtering
     db.py                # Database query/mutate tools with filter sanitisation
@@ -73,7 +81,8 @@ models/
   user.py                # User model
 schemas/
   agent.py               # AgentChatRequest, ConfirmRequest, AgentEvent
-  ai.py                  # GuardrailConfig, GuardrailRulesConfig
+  ai.py                  # GuardrailConfig, EvalPipelineConfig, EvalStage/Verdict/Result
+  mcp.py                 # McpServerConfig, McpTransport, McpToolPolicy
   auth.py                # Auth request/response models
   conversation.py        # ConversationMessage, ConversationSummary, Role
   db.py                  # QueryInput, QueryResult, Operation enum
@@ -84,7 +93,7 @@ routes/
   auth.py                # Auth endpoints (OAuth, magic link, OTP)
   sessions.py            # Logout, /me
 guardrails.example.yaml  # Example guardrail rules config
-tests/                   # 128 tests across 12 files
+tests/                   # 177 tests across 15 files
 ```
 
 ## Setup
@@ -179,6 +188,52 @@ The `@harness_tool` decorator:
 
 **Security**: All database tools run through `DbConnect`, which enforces user scoping via `_meta.user_id`. LLM-generated filters are recursively sanitised to strip `_meta` keys, preventing scope escape. A configurable collection allowlist restricts which collections the LLM can target.
 
+## Connecting MCP Servers
+
+External MCP servers provide tools alongside built-in ones. Configure static servers via environment:
+
+```bash
+MCP_SERVERS='[{"name": "my-server", "transport": "sse", "url": "http://localhost:9000/sse"}]'
+```
+
+Or pass per-request servers in the chat request body:
+
+```json
+{
+  "prompt": "List my tasks",
+  "mcp_servers": [
+    {"name": "tasks", "transport": "stdio", "command": "python", "args": ["-m", "task_server"]}
+  ]
+}
+```
+
+Supported transports: `stdio`, `sse`, `streamable_http`. Per-request connections are cleaned up when the SSE stream ends. Tool merge precedence: per-request > static MCP > built-in.
+
+To gate or restrict MCP tools:
+
+```bash
+MCP_GATED_TOOLS=dangerous_write,deploy_tool
+MCP_TOOL_PERMISSIONS='{"deploy_tool": ["ops:deploy"]}'
+```
+
+## Adding Evaluators
+
+Drop a file in `ai/evals/` — it's auto-discovered:
+
+```python
+# ai/evals/pii_check.py
+from ai.evals.base import evaluator
+from schemas.ai import EvalContext, EvalResult, EvalStage, EvalVerdict
+
+@evaluator("check_pii", stages=[EvalStage.OUTPUT], description="Block PII in responses")
+async def check_pii(ctx: EvalContext) -> EvalResult:
+    if "SSN" in (ctx.output or ""):
+        return EvalResult(verdict=EvalVerdict.FAIL, reason="PII detected")
+    return EvalResult(verdict=EvalVerdict.PASS)
+```
+
+Evaluators run at three stages: `INPUT` (before LLM), `TOOL_RESULT` (after tool execution), `OUTPUT` (before response). Return `PASS`, `FAIL` (blocks), or `RETRY` (with optional `corrective_context` to guide the LLM).
+
 ## SSE Event Stream
 
 The `/agent/chat` endpoint streams events as the agent works:
@@ -192,7 +247,8 @@ The `/agent/chat` endpoint streams events as the agent works:
 | `tool_confirmed` | User approved a gated tool |
 | `tool_denied` | User denied a gated tool |
 | `response` | Final agent response |
-| `blocked` | Guardrail blocked input or output |
+| `blocked` | Eval pipeline blocked input, output, or tool result |
+| `eval_retry` | Eval pipeline requested retry with corrective context |
 | `error` | Error (tool not found, max iterations, etc.) |
 
 ## Adding Endpoints
@@ -300,7 +356,12 @@ await add_message(ConversationMessage(
 | **Agent** | | |
 | `AGENT_MAX_ITERATIONS` | `10` | Max tool-calling loop iterations |
 | `AGENT_ALLOWED_COLLECTIONS` | _(empty = all)_ | Comma-separated collection allowlist for DB tools |
+| `AGENT_PENDING_TTL` | `300` | TTL in seconds for gated action confirmations |
 | `AGENT_SYSTEM_PROMPT` | _(default)_ | System prompt for the agent |
+| **MCP** | | |
+| `MCP_SERVERS` | `[]` | JSON list of MCP server configs (name, transport, url/command) |
+| `MCP_GATED_TOOLS` | _(empty)_ | Comma-separated MCP tool names requiring confirmation |
+| `MCP_TOOL_PERMISSIONS` | `{}` | JSON mapping of MCP tool names to required permissions |
 | **LLM** | | |
 | `LLM_PROVIDER` | `gemini` | LLM provider: `gemini`, `anthropic`, `openai` |
 | `LLM_MODEL` | _(provider default)_ | Model override |

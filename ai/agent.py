@@ -19,7 +19,6 @@ from ai.context import build_context
 from ai.evals.pipeline import run_eval_stage
 from ai.llm import get_llm
 from ai.pending import cleanup_pending, create_pending
-from ai.tools.base import get_tool
 from config import Config
 from db.conversations import add_message
 from schemas.agent import AgentEvent
@@ -43,6 +42,7 @@ async def invoke_agent(
     max_iterations: int | None = None,
 ) -> AsyncGenerator[AgentEvent, None]:
     max_iterations = max_iterations or Config.AGENT_MAX_ITERATIONS
+    tool_map = {t.name: t for t in tools}
 
     input_eval = await run_eval_stage(
         EvalStage.INPUT, EvalContext(user_id=user_id, stage=EvalStage.INPUT, prompt=prompt),
@@ -116,7 +116,7 @@ async def invoke_agent(
             tool_args = tool_call["args"]
             tool_call_id = tool_call.get("id", uuid4().hex)
 
-            tool_instance = get_tool(tool_name)
+            tool_instance = tool_map.get(tool_name)
             if tool_instance is None:
                 error_msg = f"Tool '{tool_name}' not found"
                 messages.append(ToolMessage(content=error_msg, tool_call_id=tool_call_id, status="error"))

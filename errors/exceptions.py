@@ -76,3 +76,10 @@ class PendingActionNotFoundError(HarnessException):
 
     def __init__(self, pending_id: str):
         super().__init__(f"Pending action '{pending_id}' not found or already resolved")
+
+
+class McpConnectionError(HarnessException):
+    status_code = 502
+
+    def __init__(self, server: str, reason: str = ""):
+        super().__init__(f"MCP server '{server}' connection failed{': ' + reason if reason else ''}")

@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 
+from ai.mcp import close_mcp, init_mcp
 from config import Config
 from errors import HarnessException
 from db.conversations import close_conversation_store, init_conversation_store
@@ -19,7 +20,9 @@ async def lifespan(app: FastAPI):
     await init_dragonfly()
     await init_conversation_store()
     await init_mongo()
+    await init_mcp()
     yield
+    await close_mcp()
     await close_mongo()
     await close_conversation_store()
     await close_dragonfly()
