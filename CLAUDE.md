@@ -2,13 +2,13 @@
 
 ## Project
 
-AI agent harness built on FastAPI. LLMs call tools through a multi-turn execution loop with SSE streaming, configurable guardrails, gated write confirmation, and user-scoped database access. Python 3.13+, async everywhere, Pydantic validation at all boundaries.
+AI agent harness built on FastAPI. LLMs call tools through a multi-turn execution loop with SSE streaming, configurable eval pipeline, gated write confirmation, and user-scoped database access. Python 3.13+, async everywhere, Pydantic validation at all boundaries.
 
 ## Stack
 
 - **FastAPI** with async lifespan, CORS, SessionMiddleware
 - **MongoDB** via Motor (async) — all documents inherit `MongoDocument` for `_meta` audit trail
-- **Dragonfly** (Redis wire-compatible) — sessions, OTP, conversation store
+- **Dragonfly** (Redis wire-compatible) — sessions, OTP, conversation store, pending action TTL
 - **LangChain** — LLM connector (Gemini, Anthropic, OpenAI) with structured output, tool calling
 - **pytest-asyncio** with `asyncio_mode = "auto"`, pytest-cov for coverage
 
@@ -63,10 +63,26 @@ async def tool_name(arg: str) -> str: ...
 - All queries go through `DbConnect` which enforces `_meta.user_id` scoping
 - LLM-generated filters are sanitised (strip `_meta` keys) before reaching `DbConnect`
 
+### Declarative eval registry
+
+Every evaluator uses `@evaluator` from `ai/evals/base.py` with stage bindings. Evaluators live in `ai/evals/` and are auto-discovered. The agent loop calls `run_eval_stage()` at three points: input, tool_result, and output. Existing guardrails are wrapped as built-in evaluators in `ai/evals/builtin.py`.
+
+```python
+@evaluator("eval_name", stages=[EvalStage.OUTPUT], description="...", max_retries=1)
+async def eval_name(ctx: EvalContext) -> EvalResult: ...
+```
+
+Evaluators return `EvalVerdict.PASS`, `FAIL` (blocks), or `RETRY` (with optional `corrective_context`). Pipeline config lives in `GuardrailConfig.eval_pipeline` (YAML or defaults). Empty evaluator list = run all registered for that stage.
+
+### Gated writes & pending actions
+
+Write tools set `gated=True` in `@harness_tool`. The agent loop stores pending action metadata in Dragonfly with TTL (`AGENT_PENDING_TTL`), creates an asyncio.Future for in-process signaling, and yields a `tool_pending` SSE event. The `/agent/confirm/{pending_id}` endpoint resolves or returns 404 (idempotent). Pending action logic lives in `ai/pending.py`.
+
 ### Auto-discovery patterns
 
 - **Routes**: drop a file in `routes/` with a `router` — auto-registered via `routes/__init__.py`
 - **Tools**: drop a file in `ai/tools/` with `@harness_tool` decorators — auto-registered via `ai/tools/__init__.py`
+- **Evaluators**: drop a file in `ai/evals/` with `@evaluator` decorators — auto-registered via `ai/evals/__init__.py`
 
 ### Singleton lifecycle
 
@@ -86,6 +102,10 @@ Database connections follow `init_*()` / `get_*()` / `close_*()` pattern. Init i
 | Config | `config.py` |
 | LLM connector | `ai/llm.py` |
 | Guardrails | `ai/guardrails.py` |
+| Eval registry | `ai/evals/base.py` |
+| Built-in evaluators | `ai/evals/builtin.py` |
+| Eval pipeline | `ai/evals/pipeline.py` |
+| Pending actions | `ai/pending.py` |
 | Tool registry | `ai/tools/base.py` |
 | DB tools | `ai/tools/db.py` |
 | Agent loop | `ai/agent.py` |
