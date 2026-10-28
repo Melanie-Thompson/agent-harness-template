@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
@@ -36,16 +36,9 @@ def _merge_tools(
     return list(tool_map.values())
 
 
-async def _sse_with_cleanup(
-    events: AsyncGenerator[AgentEvent, None],
-    cleanup_fn: Callable | None = None,
-) -> AsyncGenerator[str, None]:
-    try:
-        async for event in events:
-            yield f"event: {event.type}\ndata: {json.dumps(event.data)}\n\n"
-    finally:
-        if cleanup_fn:
-            await cleanup_fn()
+async def _sse_stream(events: AsyncGenerator[AgentEvent, None]) -> AsyncGenerator[str, None]:
+    async for event in events:
+        yield f"event: {event.type}\ndata: {json.dumps(event.data)}\n\n"
 
 
 @router.post("/chat", summary="Stream an agent conversation via SSE")
@@ -57,12 +50,11 @@ async def agent_chat(
     set_db_context(db)
 
     builtin_tools = get_tools(permissions=session.permissions)
-    static_mcp_tools = get_mcp_tools()
+    static_mcp_tools = await get_mcp_tools()
 
     request_mcp_tools: list[BaseTool] = []
-    cleanup_fn: Callable | None = None
     if body.mcp_servers:
-        request_mcp_tools, cleanup_fn = await connect_request_mcp(body.mcp_servers)
+        request_mcp_tools = await connect_request_mcp(body.mcp_servers)
 
     tools = _merge_tools(builtin_tools, static_mcp_tools, request_mcp_tools)
 
@@ -76,7 +68,7 @@ async def agent_chat(
     )
 
     return StreamingResponse(
-        _sse_with_cleanup(events, cleanup_fn),
+        _sse_stream(events),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

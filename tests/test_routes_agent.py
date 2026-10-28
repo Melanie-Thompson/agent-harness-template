@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
-from routes.agent import _merge_tools, _sse_with_cleanup
-from schemas.agent import AgentEvent
+from routes.agent import _merge_tools
 
 
 def _mock_tool(name: str) -> MagicMock:
@@ -29,49 +28,3 @@ def test_merge_tools_empty_inputs():
     merged = _merge_tools(builtin, [], [])
     assert len(merged) == 1
     assert merged[0].name == "a"
-
-
-async def test_sse_with_cleanup_calls_cleanup():
-    events_list = [
-        AgentEvent(type="thinking", data={"iteration": 1}),
-        AgentEvent(type="response", data={"content": "done"}),
-    ]
-
-    async def mock_events():
-        for e in events_list:
-            yield e
-
-    cleanup = AsyncMock()
-    collected = []
-    async for chunk in _sse_with_cleanup(mock_events(), cleanup):
-        collected.append(chunk)
-
-    assert len(collected) == 2
-    cleanup.assert_awaited_once()
-
-
-async def test_sse_with_cleanup_calls_cleanup_on_error():
-    async def failing_events():
-        yield AgentEvent(type="thinking", data={"iteration": 1})
-        raise RuntimeError("boom")
-
-    cleanup = AsyncMock()
-    collected = []
-    try:
-        async for chunk in _sse_with_cleanup(failing_events(), cleanup):
-            collected.append(chunk)
-    except RuntimeError:
-        pass
-
-    cleanup.assert_awaited_once()
-
-
-async def test_sse_with_cleanup_no_cleanup():
-    async def mock_events():
-        yield AgentEvent(type="response", data={"content": "ok"})
-
-    collected = []
-    async for chunk in _sse_with_cleanup(mock_events(), None):
-        collected.append(chunk)
-
-    assert len(collected) == 1

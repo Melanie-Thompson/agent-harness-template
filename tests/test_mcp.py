@@ -13,12 +13,9 @@ from schemas.mcp import McpServerConfig, McpToolPolicy, McpTransport
 def _reset_mcp_state():
     from ai import mcp
     orig_client = mcp._static_client
-    orig_tools = mcp._static_tools
     mcp._static_client = None
-    mcp._static_tools = []
     yield
     mcp._static_client = orig_client
-    mcp._static_tools = orig_tools
 
 
 def _mock_tool(name: str) -> MagicMock:
@@ -33,7 +30,7 @@ async def test_init_mcp_no_servers(monkeypatch):
 
     monkeypatch.setattr("ai.mcp.Config.MCP_SERVERS", "[]")
     await init_mcp()
-    assert get_mcp_tools() == []
+    assert await get_mcp_tools() == []
 
 
 async def test_init_mcp_with_servers(monkeypatch):
@@ -45,15 +42,13 @@ async def test_init_mcp_with_servers(monkeypatch):
     monkeypatch.setattr("ai.mcp.Config.MCP_TOOL_PERMISSIONS", "{}")
 
     mock_client = MagicMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock()
-    mock_client.get_tools = MagicMock(return_value=[_mock_tool("remote_tool")])
+    mock_client.get_tools = AsyncMock(return_value=[_mock_tool("remote_tool")])
 
     with patch("ai.mcp.MultiServerMCPClient", return_value=mock_client) as mock_cls:
         await init_mcp()
         mock_cls.assert_called_once()
 
-    tools = get_mcp_tools()
+    tools = await get_mcp_tools()
     assert len(tools) == 1
     assert tools[0].name == "remote_tool"
 
@@ -64,26 +59,21 @@ async def test_transport_dispatch_covers_all():
     assert set(_TRANSPORT_CONFIG.keys()) == set(McpTransport)
 
 
-async def test_connect_request_mcp_returns_tools_and_cleanup(monkeypatch):
+async def test_connect_request_mcp_returns_tools(monkeypatch):
     monkeypatch.setattr("ai.mcp.Config.MCP_GATED_TOOLS", [])
     monkeypatch.setattr("ai.mcp.Config.MCP_TOOL_PERMISSIONS", "{}")
 
     mock_client = MagicMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock()
-    mock_client.get_tools = MagicMock(return_value=[_mock_tool("req_tool")])
+    mock_client.get_tools = AsyncMock(return_value=[_mock_tool("req_tool")])
 
     with patch("ai.mcp.MultiServerMCPClient", return_value=mock_client):
         from ai.mcp import connect_request_mcp
 
         servers = [McpServerConfig(name="req", transport=McpTransport.SSE, url="http://localhost:9000/sse")]
-        tools, cleanup = await connect_request_mcp(servers)
+        tools = await connect_request_mcp(servers)
 
     assert len(tools) == 1
     assert tools[0].name == "req_tool"
-
-    await cleanup()
-    mock_client.__aexit__.assert_called_once()
 
 
 async def test_tool_metadata_injection(monkeypatch):
@@ -91,13 +81,10 @@ async def test_tool_metadata_injection(monkeypatch):
     monkeypatch.setattr("ai.mcp.Config.MCP_TOOL_PERMISSIONS", json.dumps({"perm_tool": ["db:read"]}))
 
     mock_client = MagicMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock()
-
     gated = _mock_tool("gated_tool")
     perm = _mock_tool("perm_tool")
     plain = _mock_tool("plain_tool")
-    mock_client.get_tools = MagicMock(return_value=[gated, perm, plain])
+    mock_client.get_tools = AsyncMock(return_value=[gated, perm, plain])
 
     server_json = json.dumps([{"name": "test", "transport": "stdio", "command": "echo"}])
     monkeypatch.setattr("ai.mcp.Config.MCP_SERVERS", server_json)
@@ -106,7 +93,7 @@ async def test_tool_metadata_injection(monkeypatch):
         from ai.mcp import init_mcp, get_mcp_tools
         await init_mcp()
 
-    tools = get_mcp_tools()
+    tools = await get_mcp_tools()
     tool_map = {t.name: t for t in tools}
 
     assert tool_map["gated_tool"].metadata["gated"] is True
@@ -116,35 +103,28 @@ async def test_tool_metadata_injection(monkeypatch):
 
 
 async def test_mcp_connection_error(monkeypatch):
-    server_json = json.dumps([{"name": "broken", "transport": "sse", "url": "http://localhost:1/sse"}])
-    monkeypatch.setattr("ai.mcp.Config.MCP_SERVERS", server_json)
     monkeypatch.setattr("ai.mcp.Config.MCP_GATED_TOOLS", [])
     monkeypatch.setattr("ai.mcp.Config.MCP_TOOL_PERMISSIONS", "{}")
 
     mock_client = MagicMock()
-    mock_client.__aenter__ = AsyncMock(side_effect=ConnectionError("refused"))
-    mock_client.__aexit__ = AsyncMock()
+    mock_client.get_tools = AsyncMock(side_effect=ConnectionError("refused"))
 
     with patch("ai.mcp.MultiServerMCPClient", return_value=mock_client):
-        from ai.mcp import init_mcp
+        from ai.mcp import connect_request_mcp
 
+        servers = [McpServerConfig(name="broken", transport=McpTransport.SSE, url="http://localhost:1/sse")]
         with pytest.raises(McpConnectionError, match="connection failed"):
-            await init_mcp()
+            await connect_request_mcp(servers)
 
 
 async def test_close_mcp_idempotent():
     from ai import mcp
     from ai.mcp import close_mcp
 
-    mock_client = MagicMock()
-    mock_client.__aexit__ = AsyncMock()
-    mcp._static_client = mock_client
-    mcp._static_tools = [_mock_tool("x")]
+    mcp._static_client = MagicMock()
 
     await close_mcp()
     assert mcp._static_client is None
-    assert mcp._static_tools == []
-    mock_client.__aexit__.assert_called_once()
 
     await close_mcp()
 
