@@ -7,6 +7,8 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from ai.mcp import close_mcp, init_mcp
 from config import Config
+from logging_broadcast import close_log_broadcast, init_log_broadcast
+from logging_config import init_logging
 from errors import HarnessException
 from db.conversations import close_conversation_store, init_conversation_store
 from db.mongo import close_mongo, init_mongo
@@ -17,6 +19,8 @@ from schemas.session import HealthResponse
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_logging()
+    init_log_broadcast()
     await init_dragonfly()
     await init_conversation_store()
     await init_mongo()
@@ -26,6 +30,7 @@ async def lifespan(app: FastAPI):
     await close_mongo()
     await close_conversation_store()
     await close_dragonfly()
+    close_log_broadcast()
 
 
 app = FastAPI(
@@ -42,7 +47,7 @@ app = FastAPI(
 app.add_middleware(SessionMiddleware, secret_key=Config.MAGIC_LINK_SECRET)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=Config.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

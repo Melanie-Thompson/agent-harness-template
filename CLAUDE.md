@@ -89,9 +89,24 @@ Write tools set `gated=True` in `@harness_tool`. The agent loop stores pending a
 - **Tools**: drop a file in `ai/tools/` with `@harness_tool` decorators — auto-registered via `ai/tools/__init__.py`
 - **Evaluators**: drop a file in `ai/evals/` with `@evaluator` decorators — auto-registered via `ai/evals/__init__.py`
 
+### Structured logging
+
+`structlog` provides structured JSON logging across the entire codebase. Every public function is instrumented with `@log_call` from `logging_decorator.py`, which logs entry (function name, params), exit (duration_ms), and errors. Critical functions like `invoke_agent` and `run_eval_stage` have additional inline contextual logs.
+
+Logs stream to connected frontends in real-time via `GET /logs/stream` (SSE). The broadcast channel (`logging_broadcast.py`) fans out log events from a structlog processor to per-client async queues with a ring buffer for catch-up.
+
+```python
+from logging_decorator import log_call
+
+@log_call
+async def my_function(arg: str) -> str: ...
+```
+
+Config: `LOG_LEVEL`, `LOG_FORMAT` (json/console), `LOG_BROADCAST_BUFFER_SIZE`.
+
 ### Singleton lifecycle
 
-Database and MCP connections follow `init_*()` / `get_*()` / `close_*()` pattern. Init in `main.py` lifespan, close on shutdown.
+Database, MCP, and logging connections follow `init_*()` / `get_*()` / `close_*()` pattern. Init in `main.py` lifespan, close on shutdown.
 
 ### Testing conventions
 
@@ -120,3 +135,7 @@ Database and MCP connections follow `init_*()` / `get_*()` / `close_*()` pattern
 | DB scoped queries | `db/connect.py` |
 | Conversation store | `db/conversations.py` |
 | Auth/permissions | `auth/permissions.py` |
+| Logging config | `logging_config.py` |
+| Log broadcast | `logging_broadcast.py` |
+| Log decorator | `logging_decorator.py` |
+| Log SSE endpoint | `routes/logs.py` |

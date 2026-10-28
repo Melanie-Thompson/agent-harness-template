@@ -15,6 +15,7 @@ from ai.tools.db import set_db_context
 from auth import require
 from db.connect import DbConnect
 from db.mongo import get_mongo_db
+from logging_decorator import log_call
 from schemas.agent import AgentChatRequest, AgentEvent, ConfirmRequest
 from schemas.session import MessageResponse, SessionData
 
@@ -41,6 +42,7 @@ async def _sse_stream(events: AsyncGenerator[AgentEvent, None]) -> AsyncGenerato
         yield f"event: {event.type}\ndata: {json.dumps(event.data)}\n\n"
 
 
+@log_call
 @router.post("/chat", summary="Stream an agent conversation via SSE")
 async def agent_chat(
     body: AgentChatRequest,
@@ -74,6 +76,7 @@ async def agent_chat(
     )
 
 
+@log_call
 @router.post("/confirm/{pending_id}", summary="Approve or deny a gated tool call")
 async def confirm_tool(
     pending_id: str,

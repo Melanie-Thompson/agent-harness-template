@@ -50,6 +50,9 @@ Write operations require **explicit user confirmation** before executing — the
 ```
 main.py                  # FastAPI app, lifespan, middleware
 config.py                # Env-backed Config class
+logging_config.py        # structlog setup, stdlib bridge, broadcast processor
+logging_broadcast.py     # In-memory async broadcast with ring buffer fan-out
+logging_decorator.py     # @log_call decorator for sync/async/async-gen functions
 ai/
   agent.py               # Multi-turn tool-calling execution loop (SSE)
   llm.py                 # LangChain LLM connector (Gemini, Anthropic, OpenAI)
@@ -86,14 +89,16 @@ schemas/
   auth.py                # Auth request/response models
   conversation.py        # ConversationMessage, ConversationSummary, Role
   db.py                  # QueryInput, QueryResult, Operation enum
+  logging.py             # LogEntry Pydantic model
   session.py             # SessionData, MessageResponse, MeResponse, HealthResponse
 routes/
   __init__.py            # Auto-discovers all routers in this package
   agent.py               # Agent chat (SSE) + gated tool confirmation
   auth.py                # Auth endpoints (OAuth, magic link, OTP)
+  logs.py                # Live log SSE stream endpoint
   sessions.py            # Logout, /me
 guardrails.example.yaml  # Example guardrail rules config
-tests/                   # 177 tests across 15 files
+tests/                   # 204 tests across 16 files
 ```
 
 ## Setup
@@ -137,6 +142,71 @@ uv sync --extra test
 uv run pytest tests/ -v
 ```
 
+## Structured Logging
+
+Every function in the harness is instrumented with `structlog` for structured, machine-readable logs. Logs are broadcast in real time via a dedicated SSE endpoint.
+
+### Architecture
+
+1. **`structlog`** — structured logging with processor chain (timestamps, log levels, logger names)
+2. **`@log_call` decorator** — wraps every function with entry/exit/error logging, duration tracking, and parameter capture with automatic redaction of sensitive fields (`password`, `token`, `secret`, `api_key`, `code`, `otp`)
+3. **`LogBroadcast`** — in-memory async broadcast with ring buffer + per-client `asyncio.Queue` fan-out
+4. **`GET /logs/stream`** — SSE endpoint that streams log events to connected clients with optional level filtering
+
+### Streaming logs
+
+Connect to `GET /logs/stream` for real-time structured logs:
+
+```bash
+curl -N "http://localhost:8000/logs/stream?level=INFO"
+```
+
+Each SSE event is a `log` event with a JSON payload:
+
+```json
+{
+  "timestamp": "2026-10-28T10:30:00.000000+00:00",
+  "level": "info",
+  "logger": "ai.agent",
+  "event": "agent.tool_result",
+  "tool": "db_read",
+  "result_len": 42,
+  "duration_ms": 15.3
+}
+```
+
+The `level` query parameter filters logs server-side: `DEBUG`, `INFO`, `WARNING`, `ERROR`.
+
+### Adding logging to new code
+
+Apply the `@log_call` decorator to any function:
+
+```python
+from logging_decorator import log_call
+
+@log_call
+async def my_function(arg1: str, arg2: int) -> str:
+    ...
+```
+
+For tool functions, place `@log_call` **below** `@harness_tool` (decorators apply bottom-up — `@harness_tool` must see the raw function):
+
+```python
+@harness_tool("my_tool", description="...")
+@log_call
+async def my_tool(query: str) -> str:
+    ...
+```
+
+For inline contextual logs (beyond entry/exit), use `get_logger`:
+
+```python
+from logging_config import get_logger
+
+_log = get_logger("my.module")
+_log.info("operation.complete", result_count=42, duration_ms=15.3)
+```
+
 ## API Endpoints
 
 ### Health
@@ -156,6 +226,9 @@ uv run pytest tests/ -v
 ### Sessions
 - `GET /sessions/me` — current user info (requires `read:self`)
 - `POST /sessions/logout` — destroys session
+
+### Logs
+- `GET /logs/stream` — SSE stream of structured logs (optional `?level=INFO` filter)
 
 ## Adding Tools
 
@@ -379,3 +452,7 @@ await add_message(ConversationMessage(
 | `HARNESS_CONVERSATION_TTL` | `1800` | Sliding TTL in seconds |
 | `CONTEXT_MAX_MESSAGES` | `50` | Max messages to include as context |
 | `CONTEXT_MAX_TOKENS` | `4000` | Approximate token budget for context |
+| **Logging** | | |
+| `LOG_LEVEL` | `INFO` | Minimum log level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `LOG_FORMAT` | `json` | Output format: `json` or `console` |
+| `LOG_BROADCAST_BUFFER_SIZE` | `1000` | Ring buffer size for SSE log broadcast |

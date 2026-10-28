@@ -8,6 +8,7 @@ from ai.tools.base import harness_tool
 from config import Config
 from db.connect import DbConnect
 from errors import CollectionNotAllowedError, NoDbContextError
+from logging_decorator import log_call
 from schemas.db import WriteOperation
 
 _db_context: ContextVar[DbConnect | None] = ContextVar("_db_context", default=None)
@@ -49,6 +50,7 @@ def _check_collection(collection: str) -> None:
     ),
     permissions=["db:read"],
 )
+@log_call
 async def db_read(collection: str, pipeline: list[dict[str, Any]]) -> str:
     _check_collection(collection)
     sanitised = _sanitise_doc(pipeline)
@@ -69,6 +71,7 @@ async def db_read(collection: str, pipeline: list[dict[str, Any]]) -> str:
     permissions=["db:write"],
     gated=True,
 )
+@log_call
 async def db_write(
     operation: str,
     collection: str,

@@ -46,6 +46,12 @@ class Config:
         t.strip() for t in os.getenv("MCP_GATED_TOOLS", "").split(",") if t.strip()
     ]
     MCP_TOOL_PERMISSIONS: str = os.getenv("MCP_TOOL_PERMISSIONS", "{}")
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+    LOG_FORMAT: str = os.getenv("LOG_FORMAT", "json")
+    LOG_BROADCAST_BUFFER_SIZE: int = int(os.getenv("LOG_BROADCAST_BUFFER_SIZE", "1000"))
+    CORS_ORIGINS: list[str] = [
+        o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()
+    ]
     AGENT_SYSTEM_PROMPT: str = os.getenv(
         "AGENT_SYSTEM_PROMPT",
         "You are a helpful assistant with access to tools. Use them when needed to answer the user's questions.",

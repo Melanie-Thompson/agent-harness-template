@@ -8,6 +8,7 @@ from auth import require
 from db.meta import build_meta_create, build_meta_delete, build_meta_update
 from db.mongo import get_mongo_db
 from db.objectid import serialise_doc, to_objectid
+from logging_decorator import log_call
 from schemas.db import QueryResult, WriteOperation
 from schemas.session import SessionData
 
@@ -31,6 +32,7 @@ class DbConnect:
         doc = await coll.find_one(self._scoped_filter({"_id": doc_id}))
         return serialise_doc(doc) if doc else None
 
+    @log_call
     async def aggregate(self, collection: str, pipeline: list[dict]) -> QueryResult:
         coll = self.db[collection]
         scoped_pipeline = [{"$match": self._scope_filter()}, *pipeline]
@@ -98,6 +100,7 @@ class DbConnect:
         WriteOperation.DELETE_MANY: "_delete_many",
     }
 
+    @log_call
     async def write(self, operation: WriteOperation, collection: str, **kwargs: Any) -> QueryResult:
         handler = getattr(self, self._WRITE_DISPATCH[operation])
         return await handler(collection, **kwargs)

@@ -20,6 +20,7 @@ dependencies = [
     "langchain-google-genai>=4.4.2",
     "langchain-mcp-adapters>=0.3.0",
     "pyyaml>=6.0.3",
+    "structlog>=24.0",
 ]
 
 [project.optional-dependencies]
@@ -37,7 +38,7 @@ asyncio_default_test_loop_scope = "session"
 addopts = "--cov --cov-report=term-missing"
 
 [tool.coverage.run]
-source = ["ai", "auth", "db", "models", "routes", "schemas", "config", "main"]
+source = ["ai", "auth", "db", "models", "routes", "schemas", "config", "main", "logging_config", "logging_broadcast", "logging_decorator"]
 omit = ["tests/*", ".venv/*"]
 
 [tool.coverage.report]

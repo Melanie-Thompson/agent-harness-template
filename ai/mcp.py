@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from collections.abc import Callable
 
 from langchain_core.tools import BaseTool
@@ -9,9 +8,11 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from config import Config
 from errors import McpConnectionError
+from logging_config import get_logger
+from logging_decorator import log_call
 from schemas.mcp import McpServerConfig, McpToolPolicy, McpTransport
 
-logger = logging.getLogger(__name__)
+_log = get_logger("ai.mcp")
 
 _static_client: MultiServerMCPClient | None = None
 
@@ -73,6 +74,7 @@ def _inject_metadata(tools: list[BaseTool], policy: McpToolPolicy) -> list[BaseT
     return tools
 
 
+@log_call
 async def init_mcp() -> None:
     global _static_client
 
@@ -82,9 +84,10 @@ async def init_mcp() -> None:
         return
 
     _static_client = MultiServerMCPClient(_build_server_params(server_configs))
-    logger.info("MCP init: %d static servers configured", len(server_configs))
+    _log.info("mcp.init", server_count=len(server_configs))
 
 
+@log_call
 async def get_mcp_tools() -> list[BaseTool]:
     if _static_client is None:
         return []
@@ -95,6 +98,7 @@ async def get_mcp_tools() -> list[BaseTool]:
     return _inject_metadata(tools, _load_tool_policy())
 
 
+@log_call
 async def connect_request_mcp(
     servers: list[McpServerConfig],
 ) -> list[BaseTool]:
@@ -107,6 +111,7 @@ async def connect_request_mcp(
     return _inject_metadata(tools, _load_tool_policy())
 
 
+@log_call
 async def close_mcp() -> None:
     global _static_client
     _static_client = None

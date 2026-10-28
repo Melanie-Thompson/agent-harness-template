@@ -6,7 +6,11 @@ from pydantic import BaseModel
 
 from ai.llm import T, get_llm
 from config import Config
+from logging_config import get_logger
+from logging_decorator import log_call
 from schemas.ai import GuardrailConfig
+
+_log = get_logger("ai.guardrails")
 
 BLOCKED_RESPONSE = "I can't help with that request."
 
@@ -41,6 +45,7 @@ class GuardedResponse(BaseModel):
 _guardrail_config: GuardrailConfig | None = None
 
 
+@log_call
 def load_guardrail_config(path: str = "") -> GuardrailConfig:
     global _guardrail_config
     path = path or Config.GUARDRAILS_CONFIG_PATH
@@ -109,6 +114,7 @@ def _get_guardrail_llm() -> BaseChatModel:
 # --- Check functions ---
 
 
+@log_call
 async def check_input(
     prompt: str,
     *,
@@ -123,9 +129,12 @@ async def check_input(
 
     llm = model or _get_guardrail_llm()
     chain = llm.with_structured_output(GuardrailResult)
-    return await chain.ainvoke(build_input_prompt(prompt))
+    result = await chain.ainvoke(build_input_prompt(prompt))
+    _log.info("guardrail.check_input", safe=result.safe, reason=result.reason)
+    return result
 
 
+@log_call
 async def check_output(
     output: str,
     *,
@@ -140,9 +149,12 @@ async def check_output(
 
     llm = model or _get_guardrail_llm()
     chain = llm.with_structured_output(GuardrailResult)
-    return await chain.ainvoke(build_output_prompt(output))
+    result = await chain.ainvoke(build_output_prompt(output))
+    _log.info("guardrail.check_output", safe=result.safe, reason=result.reason)
+    return result
 
 
+@log_call
 async def invoke_guarded(
     prompt: str,
     output_schema: type[T],

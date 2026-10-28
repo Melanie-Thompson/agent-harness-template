@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from config import Config
 from db.sessions import get_dragonfly
 from errors import PendingActionNotFoundError
+from logging_decorator import log_call
 from schemas.agent import PendingActionMeta
 
 _pending_futures: dict[str, asyncio.Future[bool]] = {}
@@ -13,6 +14,7 @@ _pending_futures: dict[str, asyncio.Future[bool]] = {}
 _KEY_PREFIX = "pending:"
 
 
+@log_call
 async def create_pending(
     pending_id: str,
     *,
@@ -36,6 +38,7 @@ async def create_pending(
     return future
 
 
+@log_call
 async def resolve_pending(pending_id: str, approved: bool) -> str:
     r = get_dragonfly()
     key = f"{_KEY_PREFIX}{pending_id}"
@@ -53,6 +56,7 @@ async def resolve_pending(pending_id: str, approved: bool) -> str:
     return "approved" if approved else "denied"
 
 
+@log_call
 async def cleanup_pending(pending_id: str) -> None:
     _pending_futures.pop(pending_id, None)
     r = get_dragonfly()

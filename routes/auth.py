@@ -8,6 +8,7 @@ from errors import InvalidCredentialError, OAuthEmailError
 from db.meta import build_meta_create
 from db.mongo import get_mongo_db
 from db.sessions import create_session
+from logging_decorator import log_call
 from schemas.auth import AuthResponse, MagicLinkRequest, OTPSendRequest, OTPVerifyRequest
 from schemas.session import MessageResponse
 
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 DEFAULT_PERMISSIONS = ["read:self"]
 
 
+@log_call
 async def _authenticate_user(
     email: str,
     response: Response,
@@ -61,6 +63,7 @@ async def google_login(request: Request):
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
+@log_call
 @router.get("/google/callback", summary="Google OAuth callback")
 async def google_callback(request: Request):
     token = await oauth.google.authorize_access_token(request)
@@ -86,6 +89,7 @@ async def github_login(request: Request):
     return await oauth.github.authorize_redirect(request, redirect_uri)
 
 
+@log_call
 @router.get("/github/callback", summary="GitHub OAuth callback")
 async def github_callback(request: Request):
     token = await oauth.github.authorize_access_token(request)
@@ -119,6 +123,7 @@ async def github_callback(request: Request):
 
 # --- Passwordless: Magic Link ---
 
+@log_call
 @router.post("/magic-link", response_model=MessageResponse, summary="Send a magic link")
 async def request_magic_link(body: MagicLinkRequest) -> MessageResponse:
     """Email a one-time login link to the given address."""
@@ -126,6 +131,7 @@ async def request_magic_link(body: MagicLinkRequest) -> MessageResponse:
     return MessageResponse(message="Magic link sent")
 
 
+@log_call
 @router.get("/magic/verify", summary="Verify a magic link token")
 async def verify_magic(token: str):
     email = verify_magic_link(token)
@@ -139,6 +145,7 @@ async def verify_magic(token: str):
 
 # --- Passwordless: OTP ---
 
+@log_call
 @router.post("/otp/send", response_model=MessageResponse, summary="Send a one-time passcode")
 async def request_otp(body: OTPSendRequest) -> MessageResponse:
     """Email a 6-digit verification code to the given address."""
@@ -146,6 +153,7 @@ async def request_otp(body: OTPSendRequest) -> MessageResponse:
     return MessageResponse(message="Verification code sent")
 
 
+@log_call
 @router.post("/otp/verify", response_model=AuthResponse, summary="Verify a one-time passcode")
 async def verify_otp_endpoint(body: OTPVerifyRequest, response: Response) -> AuthResponse:
     valid = await verify_otp(body.email, body.code)

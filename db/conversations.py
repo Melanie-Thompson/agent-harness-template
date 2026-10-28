@@ -7,6 +7,7 @@ import redis.asyncio as aioredis
 
 from config import Config
 from errors import NotInitializedError
+from logging_decorator import log_call
 from schemas.conversation import ConversationMessage, ConversationSummary
 
 _store: aioredis.Redis | None = None
@@ -34,6 +35,7 @@ def get_conversation_store() -> aioredis.Redis:
     return _store
 
 
+@log_call
 async def create_conversation(user_id: str, session_id: str) -> str:
     conversation_id = _make_id()
     now = datetime.now(timezone.utc)
@@ -54,6 +56,7 @@ async def create_conversation(user_id: str, session_id: str) -> str:
     return conversation_id
 
 
+@log_call
 async def add_message(msg: ConversationMessage) -> str:
     r = get_conversation_store()
     ttl = Config.CONVERSATION_TTL
@@ -71,6 +74,7 @@ async def add_message(msg: ConversationMessage) -> str:
     return msg.message_id
 
 
+@log_call
 async def get_messages(
     conversation_id: str,
     *,

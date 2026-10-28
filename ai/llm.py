@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from config import Config
 from errors import UnsupportedProviderError
+from logging_decorator import log_call
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -37,6 +38,7 @@ _PROVIDERS: dict[str, Callable[[str, float], BaseChatModel]] = {
 }
 
 
+@log_call
 def get_llm(model_override: str | None = None) -> BaseChatModel:
     provider = Config.LLM_PROVIDER
     model = model_override or Config.LLM_MODEL or DEFAULT_MODELS.get(provider, "")
@@ -48,6 +50,7 @@ def get_llm(model_override: str | None = None) -> BaseChatModel:
     return factory(model, temperature)
 
 
+@log_call
 async def invoke_structured(
     prompt: str,
     output_schema: type[T],

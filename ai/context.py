@@ -1,5 +1,6 @@
 from config import Config
 from db.conversations import get_messages
+from logging_decorator import log_call
 from schemas.conversation import ConversationMessage
 
 
@@ -7,6 +8,7 @@ def _estimate_tokens(text: str) -> int:
     return len(text) // 4
 
 
+@log_call
 async def build_context(
     conversation_id: str,
     *,
