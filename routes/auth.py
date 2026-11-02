@@ -7,14 +7,14 @@ from config import Config
 from errors import InvalidCredentialError, OAuthEmailError
 from db.meta import build_meta_create
 from db.mongo import get_mongo_db
-from db.sessions import create_session
+from db.sessions import create_session, delete_user_sessions
 from logging_decorator import log_call
 from schemas.auth import AuthResponse, MagicLinkRequest, OTPSendRequest, OTPVerifyRequest
 from schemas.session import MessageResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-DEFAULT_PERMISSIONS = ["read:self"]
+DEFAULT_PERMISSIONS = ["read:self", "agent:use"]
 
 
 @log_call
@@ -43,6 +43,7 @@ async def _authenticate_user(
     else:
         user_id = str(user["_id"])
 
+    await delete_user_sessions(user_id)
     session_id = await create_session(user_id, DEFAULT_PERMISSIONS)
     response.set_cookie(
         key="session_id",

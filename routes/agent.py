@@ -14,6 +14,7 @@ from ai.tools.base import get_tools
 from ai.tools.db import set_db_context
 from auth import require
 from db.connect import DbConnect
+from db.conversations import create_conversation
 from db.mongo import get_mongo_db
 from logging_decorator import log_call
 from schemas.agent import AgentChatRequest, AgentEvent, ConfirmRequest
@@ -60,17 +61,31 @@ async def agent_chat(
 
     tools = _merge_tools(builtin_tools, static_mcp_tools, request_mcp_tools)
 
+    conversation_id = body.conversation_id
+    if not conversation_id:
+        conversation_id = await create_conversation(session.user_id, session.session_id)
+
     events = invoke_agent(
         body.prompt,
         tools=tools,
         user_id=session.user_id,
-        session_id=body.session_id,
-        conversation_id=body.conversation_id,
+        session_id=session.session_id,
+        conversation_id=conversation_id,
         model=body.model,
     )
 
+    async def _with_conversation_id(
+        events: AsyncGenerator[AgentEvent, None],
+    ) -> AsyncGenerator[AgentEvent, None]:
+        yield AgentEvent(
+            type="conversation_started",
+            data={"conversation_id": conversation_id},
+        )
+        async for event in events:
+            yield event
+
     return StreamingResponse(
-        _sse_stream(events),
+        _sse_stream(_with_conversation_id(events)),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

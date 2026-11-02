@@ -35,7 +35,7 @@ class Config:
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", 0))
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-    GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+    GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", os.getenv("GEMINI_API_KEY", ""))
     AGENT_MAX_ITERATIONS: int = int(os.getenv("AGENT_MAX_ITERATIONS", "10"))
     AGENT_PENDING_TTL: int = int(os.getenv("AGENT_PENDING_TTL", "300"))
     AGENT_ALLOWED_COLLECTIONS: list[str] = [
@@ -45,10 +45,15 @@ class Config:
     MCP_GATED_TOOLS: list[str] = [
         t.strip() for t in os.getenv("MCP_GATED_TOOLS", "").split(",") if t.strip()
     ]
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+    OPENROUTER_BASE_URL: str = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     MCP_TOOL_PERMISSIONS: str = os.getenv("MCP_TOOL_PERMISSIONS", "{}")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     LOG_FORMAT: str = os.getenv("LOG_FORMAT", "json")
     LOG_BROADCAST_BUFFER_SIZE: int = int(os.getenv("LOG_BROADCAST_BUFFER_SIZE", "1000"))
+    TDA_ENABLED: bool = os.getenv("TDA_ENABLED", "true").lower() == "true"
+    TDA_WINDOW_SIZE: int = int(os.getenv("TDA_WINDOW_SIZE", "200"))
+    TDA_INTERVAL: float = float(os.getenv("TDA_INTERVAL", "2.0"))
     CORS_ORIGINS: list[str] = [
         o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()
     ]

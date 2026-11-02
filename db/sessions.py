@@ -29,6 +29,25 @@ def get_dragonfly() -> aioredis.Redis:
 
 
 @log_call
+async def delete_user_sessions(user_id: str) -> int:
+    """Remove all existing sessions for a user."""
+    conn = get_dragonfly()
+    to_delete = []
+    async for key in conn.scan_iter("session:*"):
+        raw = await conn.get(key)
+        if raw:
+            try:
+                data = json.loads(raw)
+                if data.get("user_id") == user_id:
+                    to_delete.append(key)
+            except json.JSONDecodeError:
+                pass
+    if to_delete:
+        await conn.delete(*to_delete)
+    return len(to_delete)
+
+
+@log_call
 async def create_session(user_id: str, permissions: list[str]) -> str:
     session_id = secrets.token_urlsafe(32)
     payload = json.dumps({"user_id": user_id, "permissions": permissions})

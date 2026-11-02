@@ -21,6 +21,11 @@ dependencies = [
     "langchain-mcp-adapters>=0.3.0",
     "pyyaml>=6.0.3",
     "structlog>=24.0",
+    "fastembed>=0.9.1",
+    "gudhi>=3.10",
+    "scipy>=1.12",
+    "scikit-learn>=1.4",
+    "networkx>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -38,7 +43,7 @@ asyncio_default_test_loop_scope = "session"
 addopts = "--cov --cov-report=term-missing"
 
 [tool.coverage.run]
-source = ["ai", "auth", "db", "models", "routes", "schemas", "config", "main", "logging_config", "logging_broadcast", "logging_decorator"]
+source = ["ai", "auth", "db", "models", "routes", "schemas", "config", "main", "logging_config", "logging_broadcast", "logging_decorator", "tda"]
 omit = ["tests/*", ".venv/*"]
 
 [tool.coverage.report]

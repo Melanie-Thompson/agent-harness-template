@@ -31,6 +31,7 @@ class PendingActionMeta(BaseModel):
 class AgentEvent(BaseModel):
     type: Literal[
         "thinking",
+        "token",
         "tool_call",
         "tool_result",
         "tool_pending",
@@ -40,5 +41,6 @@ class AgentEvent(BaseModel):
         "error",
         "blocked",
         "eval_retry",
+        "conversation_started",
     ]
     data: dict[str, Any] = {}

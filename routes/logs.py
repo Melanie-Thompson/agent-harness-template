@@ -31,6 +31,7 @@ async def _log_sse(
 @router.get("/stream", summary="Stream structured logs via SSE")
 async def log_stream(
     level: str | None = Query(None, description="Minimum log level: DEBUG, INFO, WARNING, ERROR"),
+    catchup: int = Query(50, description="Number of recent log entries to replay on connect (0 to skip)"),
 ) -> StreamingResponse:
     broadcast = get_log_broadcast()
     if broadcast is None:
@@ -40,7 +41,7 @@ async def log_stream(
         )
 
     min_priority = _LEVEL_PRIORITY.get(level.upper(), 0) if level else 0
-    queue = broadcast.subscribe()
+    queue = broadcast.subscribe(catchup=catchup)
 
     async def stream() -> AsyncGenerator[str, None]:
         try:

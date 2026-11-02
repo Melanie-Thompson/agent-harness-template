@@ -25,7 +25,16 @@ async def lifespan(app: FastAPI):
     await init_conversation_store()
     await init_mongo()
     await init_mcp()
+    if Config.TDA_ENABLED:
+        from tda.stream import init_tda_stream
+        await init_tda_stream(
+            window_size=Config.TDA_WINDOW_SIZE,
+            interval=Config.TDA_INTERVAL,
+        )
     yield
+    if Config.TDA_ENABLED:
+        from tda.stream import close_tda_stream
+        await close_tda_stream()
     await close_mcp()
     await close_mongo()
     await close_conversation_store()
@@ -59,6 +68,11 @@ app.include_router(router)
 @app.exception_handler(HarnessException)
 async def harness_exception_handler(request: Request, exc: HarnessException) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 @app.get("/health", response_model=HealthResponse, summary="Health check")

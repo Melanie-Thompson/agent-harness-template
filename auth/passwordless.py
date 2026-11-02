@@ -5,7 +5,10 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from auth.email import send_email
 from config import Config
 from db.sessions import get_dragonfly
+from logging_config import get_logger
 from logging_decorator import log_call
+
+_log = get_logger("auth.passwordless")
 
 _serializer: URLSafeTimedSerializer | None = None
 
@@ -40,6 +43,8 @@ async def send_otp(email: str) -> None:
     code = f"{secrets.randbelow(1000000):06d}"
     r = get_dragonfly()
     await r.set(f"otp:{email}", code, ex=Config.OTP_EXPIRE)
+    if not Config.RESEND_API_KEY:
+        _log.warning("otp.dev_code", email=email, code=code)
     await send_email(
         to=email,
         subject="Your login code",

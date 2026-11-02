@@ -18,7 +18,7 @@ def require(*permissions: str):
             _log.warning("auth.session_invalid", session_id=session_id[:8] + "...")
             raise HTTPException(status_code=401, detail="Session expired or invalid")
 
-        data = SessionData(**session)
+        data = SessionData(session_id=session_id, **session)
 
         if permissions:
             missing = [p for p in permissions if p not in data.permissions]

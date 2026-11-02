@@ -6,7 +6,11 @@ from auth.email import send_email
 
 
 async def test_send_email_calls_resend():
-    with patch("auth.email.resend") as mock_resend:
+    with (
+        patch("auth.email.Config") as mock_config,
+        patch("auth.email.resend") as mock_resend,
+    ):
+        mock_config.RESEND_API_KEY = "test-key"
         mock_resend.Emails = MagicMock()
 
         await send_email("user@example.com", "Test Subject", "<p>Hello</p>")
@@ -20,23 +24,38 @@ async def test_send_email_calls_resend():
 
 
 async def test_send_email_sets_api_key():
-    from config import Config
+    with (
+        patch("auth.email.Config") as mock_config,
+        patch("auth.email.resend") as mock_resend,
+    ):
+        mock_config.RESEND_API_KEY = "test-api-key"
+        mock_resend.Emails = MagicMock()
 
-    Config.RESEND_API_KEY = "test-api-key"
-    try:
-        with patch("auth.email.resend") as mock_resend:
-            mock_resend.Emails = MagicMock()
+        await send_email("user@example.com", "Subject", "<p>Hi</p>")
 
-            await send_email("user@example.com", "Subject", "<p>Hi</p>")
-
-            assert mock_resend.api_key == "test-api-key"
-    finally:
-        Config.RESEND_API_KEY = ""
+        assert mock_resend.api_key == "test-api-key"
 
 
 async def test_send_email_propagates_errors():
-    with patch("auth.email.resend") as mock_resend:
+    with (
+        patch("auth.email.Config") as mock_config,
+        patch("auth.email.resend") as mock_resend,
+    ):
+        mock_config.RESEND_API_KEY = "test-key"
         mock_resend.Emails.send.side_effect = Exception("API error")
 
         with pytest.raises(Exception, match="API error"):
             await send_email("user@example.com", "Subject", "<p>Hi</p>")
+
+
+async def test_send_email_skips_when_no_api_key():
+    with (
+        patch("auth.email.Config") as mock_config,
+        patch("auth.email.resend") as mock_resend,
+    ):
+        mock_config.RESEND_API_KEY = ""
+        mock_resend.Emails = MagicMock()
+
+        await send_email("user@example.com", "Subject", "<p>Hi</p>")
+
+        mock_resend.Emails.send.assert_not_called()

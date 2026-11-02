@@ -11,6 +11,7 @@ import time
 
 from langchain_core.messages import (
     AIMessage,
+    AIMessageChunk,
     HumanMessage,
     SystemMessage,
     ToolMessage,
@@ -30,6 +31,36 @@ from logging_decorator import log_call
 from schemas.conversation import ConversationMessage, Role
 
 _log = get_logger("ai.agent")
+
+_BLOCK_SUMMARY_PROMPT = (
+    "A user's message was blocked by a safety guardrail. "
+    "The matched safety category was: \"{category}\"\n"
+    "The user's message was: \"{user_input}\"\n\n"
+    "Write a brief, friendly 1-2 sentence explanation to the user about why their "
+    "message was blocked. Do not repeat the blocked content. Do not lecture. "
+    "Be concise and helpful."
+)
+
+
+async def _summarise_block_reason(
+    category: str,
+    user_input: str,
+    model_override: str | None = None,
+) -> str:
+    try:
+        llm = get_llm(model_override=model_override)
+        prompt = _BLOCK_SUMMARY_PROMPT.format(
+            category=category,
+            user_input=user_input[:200],
+        )
+        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        content = response.content or ""
+        if isinstance(content, list):
+            content = " ".join(str(c) for c in content)
+        return content.strip()
+    except Exception as exc:
+        _log.error("agent.block_summary_error", error=str(exc))
+        return category
 
 
 def _make_message_id() -> str:
@@ -56,7 +87,16 @@ async def invoke_agent(
     )
     _log.info("agent.input_eval", verdict=input_eval.verdict.value, reason=input_eval.reason)
     if input_eval.verdict != EvalVerdict.PASS:
-        yield AgentEvent(type="blocked", data={"reason": input_eval.reason, "stage": "input"})
+        summary = await _summarise_block_reason(
+            input_eval.reason or "safety policy",
+            prompt,
+            model_override=model,
+        )
+        yield AgentEvent(type="blocked", data={
+            "reason": summary,
+            "category": input_eval.reason,
+            "stage": "input",
+        })
         return
 
     llm = get_llm(model_override=model)
@@ -91,7 +131,23 @@ async def invoke_agent(
         yield AgentEvent(type="thinking", data={"iteration": iteration + 1})
 
         t_llm = time.perf_counter()
-        ai_message: AIMessage = await tool_llm.ainvoke(messages)
+        ai_message: AIMessage | None = None
+        try:
+            async for chunk in tool_llm.astream(messages):
+                if ai_message is None:
+                    ai_message = chunk
+                else:
+                    ai_message = ai_message + chunk
+                if chunk.content and not getattr(chunk, "tool_call_chunks", None):
+                    text = chunk.content if isinstance(chunk.content, str) else str(chunk.content)
+                    if text:
+                        yield AgentEvent(type="token", data={"token": text})
+        except Exception as exc:
+            _log.error("agent.llm_stream_error", error=str(exc))
+            yield AgentEvent(type="error", data={"error": f"LLM error: {exc}"})
+            return
+        if ai_message is None:
+            ai_message = AIMessage(content="")
         _log.info("agent.llm_call", iteration=iteration + 1, duration_ms=round((time.perf_counter() - t_llm) * 1000, 2))
         messages.append(ai_message)
 
@@ -105,7 +161,16 @@ async def invoke_agent(
             )
             _log.info("agent.output_eval", verdict=output_eval.verdict.value)
             if output_eval.verdict != EvalVerdict.PASS:
-                yield AgentEvent(type="blocked", data={"reason": output_eval.reason, "stage": "output"})
+                summary = await _summarise_block_reason(
+                    output_eval.reason or "safety policy",
+                    content[:200],
+                    model_override=model,
+                )
+                yield AgentEvent(type="blocked", data={
+                    "reason": summary,
+                    "category": output_eval.reason,
+                    "stage": "output",
+                })
                 return
 
             if conversation_id and session_id:
